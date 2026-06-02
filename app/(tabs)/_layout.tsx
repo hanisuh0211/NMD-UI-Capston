@@ -1,27 +1,29 @@
 import { Tabs } from 'expo-router';
+import React from 'react';
 import { Text, View } from 'react-native';
+import { SvgProps } from 'react-native-svg';
 import { Colors, Space, FontSize, LineHeight } from '../../theme';
+import { Icons } from '../../icons';
 
-import HomeIcon from '../../assets/icons/home.svg';
-import ExploreIcon from '../../assets/icons/explore.svg';
-import BarChartIcon from '../../assets/icons/bar_chart.svg';
-import AccountCircleIcon from '../../assets/icons/account_circle.svg';
-
-function NavIcon({ label, focused, Icon }: {
-  label: string;
-  focused: boolean;
-  Icon: React.FC<{ width?: number; height?: number; color?: string }>;
+function NavIcon({ label, focused, icon: IconComponent }: {
+  label: string; focused: boolean; icon: React.FC<SvgProps>; activeIcon?: React.FC<SvgProps>;
 }) {
-  const color = focused ? Colors.blue500 : Colors.gray400;
   return (
     <View style={{ alignItems: 'center', gap: Space.s050 }}>
-      <Icon width={24} height={24} color={color} />
+      <View style={{ width: 24, height: 24, alignItems: 'center', justifyContent: 'center' }}>
+        <IconComponent
+          width={24}
+          height={24}
+          color={focused ? Colors.blue500 : Colors.gray400}
+        />
+      </View>
       <Text style={{
         fontSize: FontSize.size050,
         fontWeight: '300',
         lineHeight: LineHeight.lh050,
         letterSpacing: -0.2,
-        color,
+        color: focused ? Colors.blue500 : Colors.gray400,
+        fontFamily: 'Pretendard-Light',
       }}>
         {label}
       </Text>
@@ -48,19 +50,35 @@ export default function TabLayout() {
     >
       <Tabs.Screen
         name="index"
-        options={{ tabBarIcon: ({ focused }) => <NavIcon label="메인" focused={focused} Icon={HomeIcon} /> }}
+        options={{
+          tabBarIcon: ({ focused }) => (
+            <NavIcon label="메인" focused={focused} icon={Icons.home} />
+          ),
+        }}
       />
       <Tabs.Screen
         name="feed"
-        options={{ tabBarIcon: ({ focused }) => <NavIcon label="피드" focused={focused} Icon={ExploreIcon} /> }}
+        options={{
+          tabBarIcon: ({ focused }) => (
+            <NavIcon label="피드" focused={focused} icon={Icons.explore} />
+          ),
+        }}
       />
       <Tabs.Screen
         name="stats"
-        options={{ tabBarIcon: ({ focused }) => <NavIcon label="통계" focused={focused} Icon={BarChartIcon} /> }}
+        options={{
+          tabBarIcon: ({ focused }) => (
+            <NavIcon label="통계" focused={focused} icon={Icons.barChart} />
+          ),
+        }}
       />
       <Tabs.Screen
         name="my"
-        options={{ tabBarIcon: ({ focused }) => <NavIcon label="마이" focused={focused} Icon={AccountCircleIcon} /> }}
+        options={{
+          tabBarIcon: ({ focused }) => (
+            <NavIcon label="마이" focused={focused} icon={Icons.accountCircle} />
+          ),
+        }}
       />
     </Tabs>
   );

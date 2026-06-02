@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity,
-  ScrollView, SafeAreaView, TextInput, StatusBar,
+  ScrollView, TextInput, StatusBar, ActivityIndicator,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Colors, FontSize, LineHeight, Space, Radius } from '../../theme';
+import { generateAnywayText } from '../../lib/gemini';
 
 import NotificationsIcon from '../../assets/icons/notifications.svg';
 import Flag2Icon from '../../assets/icons/flag_2.svg';
@@ -28,8 +30,19 @@ export default function MainScreen() {
   const [done, setDone] = useState('');
   const [goalTemp, setGoalTemp] = useState('');
   const [doneTemp, setDoneTemp] = useState('');
+  const [anywayText, setAnywayText] = useState('');
+  const [anywayLoading, setAnywayLoading] = useState(false);
   const [visibility, setVisibility] = useState('나만 보기');
   const [emotion, setEmotion] = useState('같이 힘내요');
+
+  // 제작하기 버튼 → AI 문구 생성 후 result로 이동
+  const handleMake = async () => {
+    setAnywayLoading(true);
+    setStep('result');
+    const text = await generateAnywayText(goal, done);
+    setAnywayText(text);
+    setAnywayLoading(false);
+  };
 
   // ── 홈 ──
   if (step === 'home') {
@@ -61,7 +74,6 @@ export default function MainScreen() {
               </View>
 
               <View style={s.writingContainer}>
-                {/* 목표 입력행 */}
                 <View style={s.writingRow}>
                   <View style={s.writingLeft}>
                     <Flag2Icon width={20} height={20} />
@@ -69,18 +81,10 @@ export default function MainScreen() {
                       {goal || '목표 입력하기'}
                     </Text>
                   </View>
-                  <TouchableOpacity
-                    style={s.writeBtn}
-                    onPress={() => {
-                      setGoalTemp(goal);
-                      setStep('goal');
-                    }}
-                  >
+                  <TouchableOpacity style={s.writeBtn} onPress={() => { setGoalTemp(goal); setStep('goal'); }}>
                     <Text style={s.writeBtnText}>{goal ? '수정' : '작성'}</Text>
                   </TouchableOpacity>
                 </View>
-
-                {/* 달성 입력행 */}
                 <View style={s.writingRow}>
                   <View style={s.writingLeft}>
                     <RewardedAdsIcon width={20} height={20} />
@@ -88,23 +92,16 @@ export default function MainScreen() {
                       {done || '달성 항목 입력하기'}
                     </Text>
                   </View>
-                  <TouchableOpacity
-                    style={s.writeBtn}
-                    onPress={() => {
-                      setDoneTemp(done);
-                      setStep('done');
-                    }}
-                  >
+                  <TouchableOpacity style={s.writeBtn} onPress={() => { setDoneTemp(done); setStep('done'); }}>
                     <Text style={s.writeBtnText}>{done ? '수정' : '작성'}</Text>
                   </TouchableOpacity>
                 </View>
               </View>
 
-              {/* 제작하기: 둘 다 입력됐을 때만 활성화 */}
               <TouchableOpacity
                 style={[s.makeBtn, goal && done ? s.makeBtnActive : {}]}
                 disabled={!goal || !done}
-                onPress={() => setStep('result')}
+                onPress={handleMake}
               >
                 <Text style={[s.makeBtnText, goal && done ? s.makeBtnTextActive : {}]}>제작하기</Text>
               </TouchableOpacity>
@@ -143,7 +140,7 @@ export default function MainScreen() {
     );
   }
 
-  // ── 목표 입력 (홈으로 복귀) ──
+  // ── 목표 입력 ──
   if (step === 'goal') {
     return (
       <View style={s.root}>
@@ -172,15 +169,10 @@ export default function MainScreen() {
                 placeholderTextColor={Colors.gray500}
                 value={goalTemp}
                 onChangeText={setGoalTemp}
+                keyboardType="default"
                 autoFocus
               />
-              <TouchableOpacity
-                style={s.primaryBtn}
-                onPress={() => {
-                  setGoal(goalTemp);
-                  setStep('home');
-                }}
-              >
+              <TouchableOpacity style={s.primaryBtn} onPress={() => { setGoal(goalTemp); setStep('home'); }}>
                 <Text style={s.primaryBtnText}>저장하기</Text>
               </TouchableOpacity>
             </View>
@@ -190,7 +182,7 @@ export default function MainScreen() {
     );
   }
 
-  // ── 달성 입력 (홈으로 복귀) ──
+  // ── 달성 입력 ──
   if (step === 'done') {
     return (
       <View style={s.root}>
@@ -219,15 +211,10 @@ export default function MainScreen() {
                 placeholderTextColor={Colors.gray500}
                 value={doneTemp}
                 onChangeText={setDoneTemp}
+                keyboardType="default"
                 autoFocus
               />
-              <TouchableOpacity
-                style={s.primaryBtn}
-                onPress={() => {
-                  setDone(doneTemp);
-                  setStep('home');
-                }}
-              >
+              <TouchableOpacity style={s.primaryBtn} onPress={() => { setDone(doneTemp); setStep('home'); }}>
                 <Text style={s.primaryBtnText}>저장하기</Text>
               </TouchableOpacity>
             </View>
@@ -255,10 +242,19 @@ export default function MainScreen() {
                   <Text style={s.callTitleSm}>뭐라도 해냈다는 게 대단한 거지!</Text>
                 </View>
               </View>
+
+              {/* AI 생성 문구 or 로딩 */}
               <View style={s.anywayTextWrap}>
-                <Text style={s.anywayText}>영어 단어 50개는 외운 거잖아!</Text>
-                <Text style={s.anywayText}>그것도 해낸 거지!</Text>
+                {anywayLoading ? (
+                  <View style={s.loadingWrap}>
+                    <ActivityIndicator size="small" color={Colors.blue500} />
+                    <Text style={s.loadingText}>문구 생성 중...</Text>
+                  </View>
+                ) : (
+                  <Text style={s.anywayText}>{anywayText}</Text>
+                )}
               </View>
+
               <View style={s.textRows}>
                 <View style={s.textRow}>
                   <View style={s.textRowLeft}>
@@ -275,6 +271,7 @@ export default function MainScreen() {
                   <Text style={s.textRowValue}>{done}</Text>
                 </View>
               </View>
+
               <View style={s.cardBtnRow}>
                 <TouchableOpacity style={s.cardBtn}>
                   <Text style={s.cardBtnText}>전환</Text>
@@ -305,8 +302,13 @@ export default function MainScreen() {
               </View>
             </View>
           </ScrollView>
+
           <View style={s.bottomBtnWrap}>
-            <TouchableOpacity style={s.primaryBtn} onPress={() => setStep('saved')}>
+            <TouchableOpacity
+              style={[s.primaryBtn, anywayLoading ? { opacity: 0.5 } : {}]}
+              disabled={anywayLoading}
+              onPress={() => setStep('saved')}
+            >
               <Text style={s.primaryBtnText}>저장하기</Text>
             </TouchableOpacity>
           </View>
@@ -363,10 +365,7 @@ export default function MainScreen() {
                     <View style={{ width: 20, height: 20 }} />
                     <Text style={s.textRowLabel}>ANYWAY</Text>
                   </View>
-                  <View style={{ flex: 1, alignItems: 'flex-end' }}>
-                    <Text style={s.textRowValue}>영어 단어 50개는 외운 거잖아!</Text>
-                    <Text style={s.textRowValue}>그것도 해낸 거지!</Text>
-                  </View>
+                  <Text style={[s.textRowValue, { color: Colors.blue400 }]}>{anywayText}</Text>
                 </View>
               </View>
               <View style={s.cardBtnRow}>
@@ -464,7 +463,9 @@ const s = StyleSheet.create({
   primaryBtn: { backgroundColor: Colors.blue500, borderRadius: Radius.r100, paddingHorizontal: Space.s300, paddingVertical: Space.s150, alignItems: 'center' },
   primaryBtnText: { fontSize: FontSize.size400, fontWeight: '600', color: Colors.white, lineHeight: LineHeight.lh400, letterSpacing: -0.2 },
   bottomBtnWrap: { paddingHorizontal: Space.s200, paddingBottom: Space.s500 },
-  anywayTextWrap: { alignItems: 'center' },
+  anywayTextWrap: { alignItems: 'center', minHeight: 60, justifyContent: 'center' },
+  loadingWrap: { flexDirection: 'row', alignItems: 'center', gap: Space.s100 },
+  loadingText: { fontSize: FontSize.size300, color: Colors.gray500, letterSpacing: -0.6 },
   anywayText: { fontSize: FontSize.size500, fontWeight: '700', color: Colors.blue400, lineHeight: LineHeight.lh500, letterSpacing: -0.2, textAlign: 'center' },
   textRows: { gap: Space.s200, paddingLeft: Space.s050 },
   textRow: { flexDirection: 'row', alignItems: 'flex-start', gap: Space.s300 },

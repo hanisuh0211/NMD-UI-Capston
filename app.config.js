@@ -45,7 +45,12 @@ export default {
       reactCompiler: true,
     },
     extra: {
-      geminiApiKey: "AIzaSyDXBE9ec4eHH48Pu3MXi42-apuOWxGFioM",
+      openaiApiKey: "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",
     },
+    fonts: [
+      "./assets/fonts/JejuSamdasooBrand-Regular.otf",
+      "./assets/fonts/JejuSamdasooBrand-Bold.otf",
+      "./assets/fonts/JejuSamdasuSpecial.otf",
+    ],
   },
 };

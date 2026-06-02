@@ -1,29 +1,27 @@
 import Constants from 'expo-constants';
 
-const GEMINI_API_KEY = Constants.expoConfig?.extra?.geminiApiKey;
-const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${GEMINI_API_KEY}`;
+const OPENAI_API_KEY = Constants.expoConfig?.extra?.openaiApiKey;
+const OPENAI_API_URL = 'https://api.openai.com/v1/chat/completions';
 
-// Gemini에 텍스트 요청하는 기본 함수
-const askGemini = async (prompt: string): Promise<string> => {
+// OpenAI에 텍스트 요청하는 기본 함수
+const askOpenAI = async (prompt: string): Promise<string> => {
   try {
-    console.log('API KEY 확인:', GEMINI_API_KEY);
-    console.log('요청 시작...');
-
-    const response = await fetch(GEMINI_API_URL, {
+    const response = await fetch(OPENAI_API_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${OPENAI_API_KEY}`,
+      },
       body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
+        model: 'gpt-5.4-mini',
+        messages: [{ role: 'user', content: prompt }],
       }),
     });
 
-    console.log('응답 상태:', response.status);
     const data = await response.json();
-    console.log('응답 데이터:', JSON.stringify(data));
-
-    return data.candidates?.[0]?.content?.parts?.[0]?.text ?? '문구를 생성할 수 없었어요.';
+    return data.choices?.[0]?.message?.content ?? '문구를 생성할 수 없었어요.';
   } catch (error) {
-    console.log('Gemini 에러 상세:', JSON.stringify(error));
+    console.log('OpenAI 에러 상세:', JSON.stringify(error));
     return '문구를 생성할 수 없었어요.';
   }
 };
@@ -49,7 +47,7 @@ export const generateAnywayText = async (goal: string, done: string): Promise<st
 
 문구만 출력해. 다른 설명 없이.
 `;
-  return await askGemini(prompt);
+  return await askOpenAI(prompt);
 };
 
 // 월간 리캡 총평 생성
@@ -70,5 +68,5 @@ ${textList}
 
 총평만 출력해. 다른 설명 없이.
 `;
-  return await askGemini(prompt);
+  return await askOpenAI(prompt);
 };

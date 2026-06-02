@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import {
-  View, Text, StyleSheet, SafeAreaView,
+  View, Text, StyleSheet,
   TextInput, TouchableOpacity, ScrollView, Alert,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 import { signUp } from '../../lib/auth';
 import { createUserProfile } from '../../lib/user';

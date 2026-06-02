@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import {
-  View, Text, StyleSheet, SafeAreaView,
+  View, Text, StyleSheet,
   TextInput, TouchableOpacity, StatusBar,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { signIn } from '../lib/auth';
 import { Colors, FontSize, LineHeight, Space, Radius } from '../theme';

@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity,
-  ScrollView, SafeAreaView, StatusBar,
+  ScrollView, StatusBar,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Colors, FontSize, LineHeight, Space, Radius } from '../../theme';
 
 const CHARACTERS = [
@@ -117,7 +118,7 @@ const s = StyleSheet.create({
   safe: { flex: 1 },
   container: { padding: Space.s200, paddingBottom: 40 },
   profileRow: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: Space.s300 },
-  profileAvatar: { width: 80, height: 80, borderRadius: 40, backgroundColor: Colors.gray100, borderWidth: 2.5, borderColor: Colors.pink },
+  profileAvatar: { width: 80, height: 80, borderRadius: 40, backgroundColor: Colors.gray100, borderWidth: 2.5, borderColor: Colors.pink400 },
   nickLabel: { fontSize: FontSize.size100, color: Colors.gray400, fontFamily: 'Pretendard-Regular', marginBottom: 2 },
   charName: { fontSize: 22, fontWeight: '800', color: Colors.gray900, fontFamily: 'Pretendard-Bold', marginBottom: Space.s100 },
   keywordRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Space.s075 },
@@ -137,7 +138,7 @@ const s = StyleSheet.create({
   currentCharInfo: { backgroundColor: Colors.white, padding: Space.s200 },
   sectionTitle: { fontSize: 20, fontWeight: '800', color: Colors.gray900, fontFamily: 'Pretendard-Bold', marginBottom: Space.s200 },
   charOption: { width: 160, backgroundColor: Colors.white, borderRadius: Radius.r200, padding: 14, borderWidth: 2, borderColor: 'transparent' },
-  charOptionActive: { borderColor: Colors.pink },
+  charOptionActive: { borderColor: Colors.pink400 },
   charOptionKeywords: { gap: 4, marginBottom: Space.s100 },
   keywordChipSm: { borderRadius: 10, borderWidth: 1, borderColor: Colors.gray100, paddingHorizontal: 6, paddingVertical: 2, backgroundColor: Colors.gray050, alignSelf: 'flex-start' },
   keywordTextSm: { fontSize: 10, color: Colors.gray500, fontFamily: 'Pretendard-Regular' },
