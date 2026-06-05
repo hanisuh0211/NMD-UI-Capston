@@ -1,12 +1,36 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity,
   ScrollView, TextInput, StatusBar, ActivityIndicator,
+  Modal, Image, useWindowDimensions, TouchableWithoutFeedback,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Alert } from 'react-native';
 import { Colors, FontSize, LineHeight, Space, Radius } from '../../theme';
 import { generateAnywayText } from '../../lib/gemini';
+import { createAnyway, updateAnyway, getTodayAnyway, Anyway } from '../../lib/anyway';
+import { getPublicFeed } from '../../lib/feed';
+import { getUserProfile } from '../../lib/user';
+import { auth } from '../../firebaseConfig';
+
+// 캐릭터 ID → 얼굴(이모지) 매핑 (실제 캐릭터 아트 도입 전 임시)
+const CHARACTER_FACES: Record<string, string> = {
+  char1: '🐱',
+  char2: '🐶',
+  char3: '🐻',
+  char4: '🐰',
+};
+
+type RecentFeed = {
+  id: string;
+  goal: string;
+  done: string;
+  anywayText: string;
+  time: string;
+  cardDate: string;
+  face: string;
+};
 
 import NotificationsIcon from '../../assets/icons/notifications.svg';
 import Flag2Icon from '../../assets/icons/flag_2.svg';
@@ -23,8 +47,41 @@ const TODAY = new Date();
 const DAY_KR = ['일', '월', '화', '수', '목', '금', '토'];
 const DATE_STR = `${TODAY.getMonth() + 1}월 ${TODAY.getDate()}일 ${DAY_KR[TODAY.getDay()]}요일`;
 const DATE_FULL = `${TODAY.getFullYear()}년 ${TODAY.getMonth() + 1}월 ${TODAY.getDate()}일 ${DAY_KR[TODAY.getDay()]}요일`;
+// YYMMDD 형식 (카드용)
+const yy = String(TODAY.getFullYear()).slice(2);
+const mm = String(TODAY.getMonth() + 1).padStart(2, '0');
+const dd = String(TODAY.getDate()).padStart(2, '0');
+const DATE_CARD = `${yy}${mm}${dd}`;
+
+// 카드용 YYMMDD (createdAt 또는 date 기준)
+function itemCardDate(item: Anyway): string {
+  let d: Date | null = null;
+  if (item.createdAt?.toDate) d = item.createdAt.toDate();
+  else if (item.date) d = new Date(item.date);
+  if (!d || isNaN(d.getTime())) d = new Date();
+  const y = String(d.getFullYear()).slice(2);
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}${m}${day}`;
+}
+
+// 상대 시간 표시 (createdAt 또는 date 기준)
+function formatRelTime(item: Anyway): string {
+  let d: Date | null = null;
+  if (item.createdAt?.toDate) d = item.createdAt.toDate();
+  else if (item.date) d = new Date(item.date);
+  if (!d || isNaN(d.getTime())) return '';
+  const diffMin = Math.floor((Date.now() - d.getTime()) / 60000);
+  if (diffMin < 1) return '지금';
+  if (diffMin < 60) return `${diffMin}분 전`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `${diffHr}시간 전`;
+  const diffDay = Math.floor(diffHr / 24);
+  return `${diffDay}일 전`;
+}
 
 export default function MainScreen() {
+  const { width: screenWidth } = useWindowDimensions();
   const [step, setStep] = useState<Step>('home');
   const [goal, setGoal] = useState('');
   const [done, setDone] = useState('');
@@ -32,8 +89,56 @@ export default function MainScreen() {
   const [doneTemp, setDoneTemp] = useState('');
   const [anywayText, setAnywayText] = useState('');
   const [anywayLoading, setAnywayLoading] = useState(false);
-  const [visibility, setVisibility] = useState('나만 보기');
+  const [visibility, setVisibility] = useState('전체 공개');
   const [emotion, setEmotion] = useState('같이 힘내요');
+  const [showCardModal, setShowCardModal] = useState(false);
+
+  // 카드 이미지 비율 (Figma 원본: 286×476)
+  // 닫기버튼(60) + 탭바(80) + 상하여백(80) = 220px 확보
+  const { height: screenHeight } = useWindowDimensions();
+  const maxByWidth = screenWidth * 0.72;
+  const maxByHeight = (screenHeight - 220) * (286 / 476);
+  const cardW = Math.min(maxByWidth, maxByHeight);
+  const cardH = cardW * (476 / 286);
+  const sc = cardW / 286; // 피그마 px → 화면 px 스케일
+
+  const [saving, setSaving] = useState(false);
+  const [savedId, setSavedId] = useState<string | null>(null);
+  const [recentFeed, setRecentFeed] = useState<RecentFeed[]>([]);
+  const [selectedFeed, setSelectedFeed] = useState<RecentFeed | null>(null);
+
+  // 최근 피드 불러오기 (전체 공개 ANYWAY + 작성자 캐릭터)
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      const { feed } = await getPublicFeed(undefined, 5);
+      if (!feed.length) return;
+
+      // 작성자별 캐릭터 조회 (중복 userId는 한 번만)
+      const faceCache: Record<string, string> = {};
+      const uniqueIds = [...new Set(feed.map(f => f.userId))];
+      await Promise.all(
+        uniqueIds.map(async (uid) => {
+          const { profile } = await getUserProfile(uid);
+          faceCache[uid] = CHARACTER_FACES[profile?.character ?? ''] ?? '🙂';
+        })
+      );
+
+      if (!active) return;
+      setRecentFeed(
+        feed.map((f: Anyway) => ({
+          id: f.id ?? '',
+          goal: f.goal,
+          done: f.done,
+          anywayText: f.anywayText,
+          time: formatRelTime(f),
+          cardDate: itemCardDate(f),
+          face: faceCache[f.userId] ?? '🙂',
+        }))
+      );
+    })();
+    return () => { active = false; };
+  }, [step]);
 
   // 제작하기 버튼 → AI 문구 생성 후 result로 이동
   const handleMake = async () => {
@@ -42,6 +147,56 @@ export default function MainScreen() {
     const text = await generateAnywayText(goal, done);
     setAnywayText(text);
     setAnywayLoading(false);
+  };
+
+  // 저장하기 → Firestore에 ANYWAY 저장(또는 수정) 후 saved 화면으로
+  const handleSave = async () => {
+    const user = auth.currentUser;
+    if (!user) {
+      Alert.alert('알림', '로그인이 필요합니다.');
+      return;
+    }
+    // 하루 1회 제한: 신규 저장인데 오늘 이미 만든 카드가 있으면 차단
+    if (!savedId) {
+      const todayCard = await getTodayAnyway(user.uid);
+      if (todayCard) {
+        Alert.alert('알림', '오늘은 이미 ANYWAY 카드를 만들었어요.\n내일 다시 만들 수 있어요!');
+        return;
+      }
+    }
+
+    setSaving(true);
+
+    if (savedId) {
+      // 이미 저장된 카드 → 설정만 업데이트 (중복 생성 방지)
+      const { error } = await updateAnyway(savedId, {
+        visibility: visibility as '전체 공개' | '친구 공개' | '나만 보기',
+        emotion,
+      });
+      setSaving(false);
+      if (error) {
+        Alert.alert('오류', '수정에 실패했습니다. 다시 시도해주세요.');
+        return;
+      }
+    } else {
+      // 신규 저장
+      const { id, error } = await createAnyway({
+        userId: user.uid,
+        goal,
+        done,
+        anywayText,
+        date: TODAY.toISOString(),
+        visibility: visibility as '전체 공개' | '친구 공개' | '나만 보기',
+        emotion,
+      });
+      setSaving(false);
+      if (error || !id) {
+        Alert.alert('오류', '저장에 실패했습니다. 다시 시도해주세요.');
+        return;
+      }
+      setSavedId(id);
+    }
+    setStep('saved');
   };
 
   // ── 홈 ──
@@ -114,27 +269,74 @@ export default function MainScreen() {
                   <ArrowForwardIosIcon width={24} height={24} color={Colors.gray900} />
                 </TouchableOpacity>
               </View>
-              {[
-                { caption: '목표', time: '지금', title: '해냈어!' },
-                { caption: 'title-text', time: 'time', title: 'content-text' },
-                { caption: 'title-text', time: 'time', title: 'content-text' },
-              ].map((item, i) => (
-                <View key={i} style={s.feedItem}>
-                  <View style={s.feedAvatar} />
-                  <View style={s.feedTextWrap}>
-                    <View style={s.feedCapRow}>
-                      <Text style={s.feedCaption}>{item.caption}</Text>
-                      <Text style={s.feedTime}>{item.time}</Text>
+              {recentFeed.length === 0 ? (
+                <Text style={s.feedEmptyText}>아직 공개된 ANYWAY가 없어요.</Text>
+              ) : (
+                recentFeed.map((item) => (
+                  <TouchableOpacity
+                    key={item.id}
+                    activeOpacity={0.85}
+                    onPress={() => setSelectedFeed(item)}
+                    style={s.feedItem}
+                  >
+                    <View style={s.feedAvatar}>
+                      <Text style={s.feedAvatarFace}>{item.face}</Text>
                     </View>
-                    <View style={s.feedAnyway}>
-                      <Text style={s.feedAnywayText}>anyway, </Text>
-                      <Text style={s.feedAnywayText}>{item.title}</Text>
+                    <View style={s.feedTextWrap}>
+                      <View style={s.feedCapRow}>
+                        <Text style={s.feedCaption} numberOfLines={1}>{item.goal}</Text>
+                        <Text style={s.feedTime}>{item.time}</Text>
+                      </View>
+                      <View style={s.feedAnyway}>
+                        <Text style={s.feedAnywayText} numberOfLines={1}>anyway, {item.anywayText}</Text>
+                      </View>
                     </View>
-                  </View>
-                </View>
-              ))}
+                  </TouchableOpacity>
+                ))
+              )}
             </View>
           </ScrollView>
+
+          {/* 최근 피드 카드 팝업 */}
+          <Modal
+            visible={selectedFeed !== null}
+            transparent
+            animationType="fade"
+            onRequestClose={() => setSelectedFeed(null)}
+          >
+            <TouchableWithoutFeedback onPress={() => setSelectedFeed(null)}>
+              <View style={s.modalOverlay}>
+                <TouchableOpacity style={s.modalClose} onPress={() => setSelectedFeed(null)}>
+                  <Text style={s.modalCloseText}>✕</Text>
+                </TouchableOpacity>
+                <TouchableWithoutFeedback onPress={() => {}}>
+                  <View style={{ width: cardW, height: cardH }}>
+                    <Image
+                      source={require('../../assets/images/card_template.png')}
+                      style={{ width: cardW, height: cardH }}
+                      resizeMode="stretch"
+                    />
+                    {selectedFeed && (
+                      <>
+                        <View style={{
+                          position: 'absolute', left: 19 * sc, top: 68 * sc,
+                          width: 183.914 * sc, height: 88.327 * sc,
+                          alignItems: 'center', justifyContent: 'center', overflow: 'visible',
+                        }}>
+                          <View style={{ transform: [{ rotate: '-7.09deg' }] }}>
+                            <Text style={[s.cardDateText, { fontSize: 56 * sc, letterSpacing: -2.24 * sc }]}>{selectedFeed.cardDate}</Text>
+                          </View>
+                        </View>
+                        <Text style={[s.cardValueText, { position: 'absolute', left: 31 * sc, top: 181 * sc, width: 220 * sc, fontSize: 16 * sc, letterSpacing: -0.64 * sc }]}>{selectedFeed.goal}</Text>
+                        <Text style={[s.cardValueText, { position: 'absolute', left: 31 * sc, top: 247 * sc, width: 220 * sc, fontSize: 16 * sc, letterSpacing: -0.64 * sc }]}>{selectedFeed.done}</Text>
+                        <Text style={[s.cardValueText, { position: 'absolute', left: 31 * sc, top: 313 * sc, width: 220 * sc, fontSize: 16 * sc, letterSpacing: -0.64 * sc }]}>{selectedFeed.anywayText}</Text>
+                      </>
+                    )}
+                  </View>
+                </TouchableWithoutFeedback>
+              </View>
+            </TouchableWithoutFeedback>
+          </Modal>
         </SafeAreaView>
       </View>
     );
@@ -273,7 +475,7 @@ export default function MainScreen() {
               </View>
 
               <View style={s.cardBtnRow}>
-                <TouchableOpacity style={s.cardBtn}>
+                <TouchableOpacity style={s.cardBtn} onPress={() => setShowCardModal(true)}>
                   <Text style={s.cardBtnText}>전환</Text>
                   <SwapHorizIcon width={16} height={16} color={Colors.blue700} />
                 </TouchableOpacity>
@@ -305,13 +507,55 @@ export default function MainScreen() {
 
           <View style={s.bottomBtnWrap}>
             <TouchableOpacity
-              style={[s.primaryBtn, anywayLoading ? { opacity: 0.5 } : {}]}
-              disabled={anywayLoading}
-              onPress={() => setStep('saved')}
+              style={[s.primaryBtn, (anywayLoading || saving) ? { opacity: 0.5 } : {}]}
+              disabled={anywayLoading || saving}
+              onPress={handleSave}
             >
-              <Text style={s.primaryBtnText}>저장하기</Text>
+              <Text style={s.primaryBtnText}>{saving ? '저장 중...' : '저장하기'}</Text>
             </TouchableOpacity>
           </View>
+
+          {/* 카드 모달 (result 스텝) */}
+          <Modal
+            visible={showCardModal}
+            transparent
+            animationType="fade"
+            onRequestClose={() => setShowCardModal(false)}
+          >
+            <TouchableWithoutFeedback onPress={() => setShowCardModal(false)}>
+              <View style={s.modalOverlay}>
+                <TouchableOpacity style={s.modalClose} onPress={() => setShowCardModal(false)}>
+                  <Text style={s.modalCloseText}>✕</Text>
+                </TouchableOpacity>
+                <TouchableWithoutFeedback onPress={() => {}}>
+                  <View style={{ width: cardW, height: cardH }}>
+                    <Image
+                      source={require('../../assets/images/card_template.png')}
+                      style={{ width: cardW, height: cardH }}
+                      resizeMode="stretch"
+                    />
+                    <View style={{
+                      position: 'absolute',
+                      left: 19 * sc,
+                      top: 68 * sc,
+                      width: 183.914 * sc,
+                      height: 88.327 * sc,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      overflow: 'visible',
+                    }}>
+                      <View style={{ transform: [{ rotate: '-7.09deg' }] }}>
+                        <Text style={[s.cardDateText, { fontSize: 56 * sc, letterSpacing: -2.24 * sc }]}>{DATE_CARD}</Text>
+                      </View>
+                    </View>
+                    <Text style={[s.cardValueText, { position: 'absolute', left: 31 * sc, top: 181 * sc, width: 220 * sc, fontSize: 16 * sc, letterSpacing: -0.64 * sc }]}>{goal}</Text>
+                    <Text style={[s.cardValueText, { position: 'absolute', left: 31 * sc, top: 247 * sc, width: 220 * sc, fontSize: 16 * sc, letterSpacing: -0.64 * sc }]}>{done}</Text>
+                    <Text style={[s.cardValueText, { position: 'absolute', left: 31 * sc, top: 313 * sc, width: 220 * sc, fontSize: 16 * sc, letterSpacing: -0.64 * sc }]}>{anywayText}</Text>
+                  </View>
+                </TouchableWithoutFeedback>
+              </View>
+            </TouchableWithoutFeedback>
+          </Modal>
         </SafeAreaView>
       </View>
     );
@@ -369,15 +613,92 @@ export default function MainScreen() {
                 </View>
               </View>
               <View style={s.cardBtnRow}>
-                <TouchableOpacity style={s.cardBtn}>
+                <TouchableOpacity style={s.cardBtn} onPress={() => setStep('result')}>
                   <Text style={s.cardBtnText}>수정</Text>
                   <BorderColorIcon width={16} height={16} color={Colors.blue700} />
                 </TouchableOpacity>
-                <TouchableOpacity style={s.cardBtn}>
+                <TouchableOpacity style={s.cardBtn} onPress={() => setShowCardModal(true)}>
                   <Text style={s.cardBtnText}>전환</Text>
                   <SwapHorizIcon width={16} height={16} color={Colors.blue700} />
                 </TouchableOpacity>
               </View>
+
+              {/* 카드 모달 */}
+              <Modal
+                visible={showCardModal}
+                transparent
+                animationType="fade"
+                onRequestClose={() => setShowCardModal(false)}
+              >
+                <TouchableWithoutFeedback onPress={() => setShowCardModal(false)}>
+                  <View style={s.modalOverlay}>
+                    {/* X 닫기 버튼 */}
+                    <TouchableOpacity style={s.modalClose} onPress={() => setShowCardModal(false)}>
+                      <Text style={s.modalCloseText}>✕</Text>
+                    </TouchableOpacity>
+
+                    {/* 카드 */}
+                    <TouchableWithoutFeedback onPress={() => {}}>
+                    <View style={{ width: cardW, height: cardH }}>
+                    {/* 피그마 카드 프레임 이미지 (텍스트 없는 버전) */}
+                    <Image
+                      source={require('../../assets/images/card_template.png')}
+                      style={{ width: cardW, height: cardH }}
+                      resizeMode="stretch"
+                    />
+
+                    {/* 날짜 - AVALADO 폰트, -7.09도 회전 (Figma: left=19, top=68, w=183.9, h=88.3, 56px) */}
+                    <View style={{
+                      position: 'absolute',
+                      left: 19 * sc,
+                      top: 68 * sc,
+                      width: 183.914 * sc,
+                      height: 88.327 * sc,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      overflow: 'visible',
+                    }}>
+                      <View style={{ transform: [{ rotate: '-7.09deg' }] }}>
+                        <Text style={[s.cardDateText, { fontSize: 56 * sc, letterSpacing: -2.24 * sc }]}>
+                          {DATE_CARD}
+                        </Text>
+                      </View>
+                    </View>
+
+                    {/* Goal 값 (Figma: left=31, top=181, 16px) */}
+                    <Text style={[s.cardValueText, {
+                      position: 'absolute',
+                      left: 31 * sc,
+                      top: 181 * sc,
+                      width: 220 * sc,
+                      fontSize: 16 * sc,
+                      letterSpacing: -0.64 * sc,
+                    }]}>{goal}</Text>
+
+                    {/* Done 값 (Figma: left=31, top=247, 16px) */}
+                    <Text style={[s.cardValueText, {
+                      position: 'absolute',
+                      left: 31 * sc,
+                      top: 247 * sc,
+                      width: 220 * sc,
+                      fontSize: 16 * sc,
+                      letterSpacing: -0.64 * sc,
+                    }]}>{done}</Text>
+
+                    {/* Anyway 값 (Figma: left=31, top=313, 16px) */}
+                    <Text style={[s.cardValueText, {
+                      position: 'absolute',
+                      left: 31 * sc,
+                      top: 313 * sc,
+                      width: 220 * sc,
+                      fontSize: 16 * sc,
+                      letterSpacing: -0.64 * sc,
+                    }]}>{anywayText}</Text>
+                    </View>
+                    </TouchableWithoutFeedback>
+                  </View>
+                </TouchableWithoutFeedback>
+              </Modal>
             </View>
 
             <View style={s.feedSection}>
@@ -387,22 +708,74 @@ export default function MainScreen() {
                   <ArrowForwardIosIcon width={24} height={24} color={Colors.gray900} />
                 </TouchableOpacity>
               </View>
-              <View style={s.feedGallery}>
-                {[1, 2, 3, 4, 5, 6].map(i => (
-                  <View key={i} style={s.feedImgCard}>
-                    <View style={s.feedImgMeta}>
-                      <Text style={s.feedImgName}>name</Text>
-                      <Text style={s.feedImgTime}>time</Text>
+              {recentFeed.length === 0 ? (
+                <Text style={s.feedEmptyText}>아직 공개된 ANYWAY가 없어요.</Text>
+              ) : (
+                recentFeed.map((item) => (
+                  <TouchableOpacity
+                    key={item.id}
+                    activeOpacity={0.85}
+                    onPress={() => setSelectedFeed(item)}
+                    style={s.feedItem}
+                  >
+                    <View style={s.feedAvatar}>
+                      <Text style={s.feedAvatarFace}>{item.face}</Text>
                     </View>
-                    <View style={s.feedImgBottom}>
-                      <Text style={s.feedAnywayLabel}>ANYWAY,</Text>
-                      <Text style={s.feedAnywayContent}>일이삼사오육칠팔구십일이삼</Text>
+                    <View style={s.feedTextWrap}>
+                      <View style={s.feedCapRow}>
+                        <Text style={s.feedCaption} numberOfLines={1}>{item.goal}</Text>
+                        <Text style={s.feedTime}>{item.time}</Text>
+                      </View>
+                      <View style={s.feedAnyway}>
+                        <Text style={s.feedAnywayText} numberOfLines={1}>anyway, {item.anywayText}</Text>
+                      </View>
                     </View>
-                  </View>
-                ))}
-              </View>
+                  </TouchableOpacity>
+                ))
+              )}
             </View>
           </ScrollView>
+
+          {/* 최근 피드 카드 팝업 (저장 완료 화면) */}
+          <Modal
+            visible={selectedFeed !== null}
+            transparent
+            animationType="fade"
+            onRequestClose={() => setSelectedFeed(null)}
+          >
+            <TouchableWithoutFeedback onPress={() => setSelectedFeed(null)}>
+              <View style={s.modalOverlay}>
+                <TouchableOpacity style={s.modalClose} onPress={() => setSelectedFeed(null)}>
+                  <Text style={s.modalCloseText}>✕</Text>
+                </TouchableOpacity>
+                <TouchableWithoutFeedback onPress={() => {}}>
+                  <View style={{ width: cardW, height: cardH }}>
+                    <Image
+                      source={require('../../assets/images/card_template.png')}
+                      style={{ width: cardW, height: cardH }}
+                      resizeMode="stretch"
+                    />
+                    {selectedFeed && (
+                      <>
+                        <View style={{
+                          position: 'absolute', left: 19 * sc, top: 68 * sc,
+                          width: 183.914 * sc, height: 88.327 * sc,
+                          alignItems: 'center', justifyContent: 'center', overflow: 'visible',
+                        }}>
+                          <View style={{ transform: [{ rotate: '-7.09deg' }] }}>
+                            <Text style={[s.cardDateText, { fontSize: 56 * sc, letterSpacing: -2.24 * sc }]}>{selectedFeed.cardDate}</Text>
+                          </View>
+                        </View>
+                        <Text style={[s.cardValueText, { position: 'absolute', left: 31 * sc, top: 181 * sc, width: 220 * sc, fontSize: 16 * sc, letterSpacing: -0.64 * sc }]}>{selectedFeed.goal}</Text>
+                        <Text style={[s.cardValueText, { position: 'absolute', left: 31 * sc, top: 247 * sc, width: 220 * sc, fontSize: 16 * sc, letterSpacing: -0.64 * sc }]}>{selectedFeed.done}</Text>
+                        <Text style={[s.cardValueText, { position: 'absolute', left: 31 * sc, top: 313 * sc, width: 220 * sc, fontSize: 16 * sc, letterSpacing: -0.64 * sc }]}>{selectedFeed.anywayText}</Text>
+                      </>
+                    )}
+                  </View>
+                </TouchableWithoutFeedback>
+              </View>
+            </TouchableWithoutFeedback>
+          </Modal>
         </SafeAreaView>
       </View>
     );
@@ -423,7 +796,7 @@ const s = StyleSheet.create({
   dateText: { fontSize: FontSize.size500, fontWeight: '700', color: Colors.gray700, lineHeight: LineHeight.lh500, letterSpacing: -0.2 },
   daysText: { fontSize: FontSize.size900, fontWeight: '700', color: Colors.gray900, lineHeight: LineHeight.lh900, letterSpacing: -0.6 },
   callingCard: { backgroundColor: Colors.gray050, borderWidth: 1, borderColor: Colors.gray100, borderRadius: Radius.r300, paddingHorizontal: Space.s200, paddingTop: Space.s300, paddingBottom: Space.s200, gap: Space.s300, marginTop: Space.s300, shadowColor: Colors.black, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.05, shadowRadius: 6, elevation: 2 },
-  callingCardResult: { backgroundColor: Colors.gray050, borderWidth: 1, borderColor: Colors.gray100, borderRadius: Radius.r300, paddingHorizontal: Space.s200, paddingTop: Space.s300, paddingBottom: Space.s200, gap: Space.s300, shadowColor: Colors.black, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.05, shadowRadius: 6, elevation: 2 },
+  callingCardResult: { backgroundColor: Colors.gray050, borderWidth: 1, borderColor: Colors.gray100, borderRadius: Radius.r300, paddingHorizontal: Space.s200, paddingTop: Space.s300, paddingBottom: Space.s200, gap: Space.s300, marginTop: Space.s300, shadowColor: Colors.black, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.05, shadowRadius: 6, elevation: 2 },
   avatarWrap: { alignItems: 'center' },
   avatarCircle: { width: 80, height: 80, borderRadius: 40, backgroundColor: Colors.gray100, borderWidth: 1.5, borderColor: Colors.pink400 },
   avatarSmall: { width: 56, height: 56, borderRadius: 28, backgroundColor: Colors.gray100, borderWidth: 1.5, borderColor: Colors.pink400 },
@@ -441,11 +814,13 @@ const s = StyleSheet.create({
   makeBtnActive: { backgroundColor: Colors.blue500, borderColor: Colors.blue500 },
   makeBtnText: { fontSize: FontSize.size400, fontWeight: '600', color: Colors.gray500, lineHeight: LineHeight.lh400, letterSpacing: -0.2 },
   makeBtnTextActive: { color: Colors.white },
-  feedSection: { paddingBottom: Space.s900 },
+  feedSection: { marginTop: Space.s500, paddingBottom: Space.s900 },
   feedHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingLeft: Space.s050, paddingBottom: Space.s300 },
   feedTitle: { fontSize: FontSize.size600, fontWeight: '700', color: Colors.gray900, lineHeight: LineHeight.lh600, letterSpacing: -0.4 },
   feedItem: { backgroundColor: Colors.blue100, borderRadius: Radius.r200, flexDirection: 'row', alignItems: 'center', paddingLeft: Space.s200, paddingRight: Space.s250, paddingVertical: Space.s250, gap: Space.s200, marginBottom: Space.s200, shadowColor: Colors.black, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.05, shadowRadius: 6, elevation: 1 },
-  feedAvatar: { width: 48, height: 48, borderRadius: 24, backgroundColor: Colors.gray100, borderWidth: 1, borderColor: Colors.pink400 },
+  feedAvatar: { width: 48, height: 48, borderRadius: 24, backgroundColor: Colors.gray100, borderWidth: 1, borderColor: Colors.pink400, alignItems: 'center', justifyContent: 'center' },
+  feedAvatarFace: { fontSize: 24 },
+  feedEmptyText: { fontSize: FontSize.size200, color: Colors.gray400, letterSpacing: -0.6, paddingVertical: Space.s200 },
   feedTextWrap: { flex: 1 },
   feedCapRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingBottom: Space.s025 },
   feedCaption: { flex: 1, fontSize: FontSize.size200, color: Colors.gray700, lineHeight: LineHeight.lh200, letterSpacing: -0.6 },
@@ -475,7 +850,7 @@ const s = StyleSheet.create({
   cardBtnRow: { flexDirection: 'row', justifyContent: 'flex-end', gap: Space.s150 },
   cardBtn: { backgroundColor: Colors.blue200, borderWidth: 1, borderColor: Colors.opacityBlack100, borderRadius: Radius.r100, paddingHorizontal: Space.s150, paddingVertical: Space.s075, flexDirection: 'row', alignItems: 'center', gap: 4 },
   cardBtnText: { fontSize: FontSize.size200, color: Colors.blue700, lineHeight: LineHeight.lh200, letterSpacing: -0.6 },
-  settingSection: { paddingBottom: Space.s300 },
+  settingSection: { marginTop: Space.s400, paddingBottom: Space.s100 },
   settingTitle: { fontSize: FontSize.size500, fontWeight: '700', color: Colors.gray900, lineHeight: LineHeight.lh500, letterSpacing: -0.2, paddingLeft: Space.s050, paddingBottom: Space.s200 },
   chipRow: { flexDirection: 'row', gap: Space.s150, flexWrap: 'wrap' },
   chip: { borderRadius: Radius.r999, paddingHorizontal: Space.s200, paddingVertical: Space.s100 },
@@ -484,6 +859,35 @@ const s = StyleSheet.create({
   chipText: { fontSize: FontSize.size200, lineHeight: LineHeight.lh200, letterSpacing: -0.6 },
   chipTextActive: { color: Colors.white },
   chipTextInactive: { color: Colors.gray500 },
+  // 카드 모달
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(96,98,109,0.75)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalClose: {
+    position: 'absolute',
+    top: 60,
+    right: Space.s200,
+    padding: Space.s100,
+    zIndex: 10,
+  },
+  modalCloseText: {
+    fontSize: 22, color: Colors.white, fontWeight: '600',
+  },
+  cardDateText: {
+    fontFamily: 'AVALADO-Sick',
+    color: Colors.black,
+    includeFontPadding: false,
+  },
+  cardValueText: {
+    fontFamily: 'Pretendard-Regular',
+    color: Colors.gray900,
+    letterSpacing: -0.4,
+    flexShrink: 1,
+    flexWrap: 'wrap',
+  },
   feedGallery: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
   feedImgCard: { width: '47%', aspectRatio: 1, borderWidth: 1, borderColor: Colors.gray300, borderRadius: Radius.r300, paddingHorizontal: Space.s150, paddingTop: Space.s200, paddingBottom: Space.s150, justifyContent: 'space-between', backgroundColor: Colors.gray100, shadowColor: Colors.black, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.05, shadowRadius: 12, elevation: 2 },
   feedImgMeta: { flexDirection: 'row', justifyContent: 'space-between', paddingLeft: 4 },

@@ -10,6 +10,7 @@ export default function RootLayout() {
     'JejuSamdasooBrand-Regular': require('../assets/fonts/JejuSamdasooBrand-Regular.otf'),
     'JejuSamdasooBrand-Bold': require('../assets/fonts/JejuSamdasooBrand-Bold.otf'),
     'JejuSamdasuSpecial': require('../assets/fonts/JejuSamdasuSpecial.otf'),
+    'AVALADO-Sick': require('../assets/fonts/AVALADO-Sick.otf'),
   });
 
   useEffect(() => {

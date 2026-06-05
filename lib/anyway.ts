@@ -39,22 +39,48 @@ export const createAnyway = async (data: Omit<Anyway, 'id' | 'createdAt'>) => {
 };
 
 // 내 ANYWAY 목록 불러오기
+// where(userId)만 사용하고 정렬은 클라이언트에서 → 복합 색인 불필요
 export const getMyAnyways = async (userId: string) => {
   try {
     const q = query(
       collection(db, 'anyways'),
-      where('userId', '==', userId),
-      orderBy('createdAt', 'desc')
+      where('userId', '==', userId)
     );
     const querySnapshot = await getDocs(q);
     const anyways: Anyway[] = [];
     querySnapshot.forEach((doc) => {
       anyways.push({ id: doc.id, ...doc.data() } as Anyway);
     });
+    // 최신순 정렬 (createdAt 우선, 없으면 date)
+    anyways.sort((a, b) => {
+      const ta = a.createdAt?.toDate ? a.createdAt.toDate().getTime() : new Date(a.date).getTime();
+      const tb = b.createdAt?.toDate ? b.createdAt.toDate().getTime() : new Date(b.date).getTime();
+      return tb - ta;
+    });
     return { anyways, error: null };
   } catch (error: any) {
+    console.log('getMyAnyways 에러:', error.message);
     return { anyways: [], error: error.message };
   }
+};
+
+// 오늘 이미 카드를 만들었는지 확인 (하루 1회 제한용)
+export const getTodayAnyway = async (userId: string): Promise<Anyway | null> => {
+  const { anyways } = await getMyAnyways(userId);
+  const now = new Date();
+  return (
+    anyways.find((a) => {
+      let d: Date | null = null;
+      if (a.createdAt?.toDate) d = a.createdAt.toDate();
+      else if (a.date) d = new Date(a.date);
+      return (
+        !!d && !isNaN(d.getTime()) &&
+        d.getFullYear() === now.getFullYear() &&
+        d.getMonth() === now.getMonth() &&
+        d.getDate() === now.getDate()
+      );
+    }) ?? null
+  );
 };
 
 // ANYWAY 단건 불러오기

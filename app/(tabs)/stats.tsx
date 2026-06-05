@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { PanResponder, Animated } from 'react-native';
 import {
   View, Text, StyleSheet, TouchableOpacity,
@@ -19,6 +19,8 @@ import CallEndIcon from '../../assets/icons/call_end.svg';
 import PhoneForwardedIcon from '../../assets/icons/phone_forwarded.svg';
 import DownloadIcon from '../../assets/icons/download.svg';
 import OpenInNewIcon from '../../assets/icons/open_in_new.svg';
+import { getMyAnyways } from '../../lib/anyway';
+import { auth } from '../../firebaseConfig';
 
 // ── 캘린더 데이터 ──
 type CellType = 'num' | 'blank' | 'empty';
@@ -35,7 +37,6 @@ const JUNE_ROWS: Row[] = [
   { cells: [{ type: 'blank' }, { type: 'blank' }, { type: 'num', day: 27 }, { type: 'num', day: 28 }, { type: 'num', day: 29 }, { type: 'empty' }, { type: 'num', day: 30 }, { type: 'num', day: 31 }, { type: 'blank' }] },
 ];
 
-const STAMP_DAYS = [2, 3, 4, 5, 8, 12];
 const RECAP_PAGES = ['compare', 'list', 'final'];
 
 const MONTH_NAMES = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
@@ -145,6 +146,49 @@ export default function StatsScreen() {
   const today = new Date();
   const monthStr = MONTH_NAMES[today.getMonth()];
   const dateStr = `${today.getFullYear()}년 ${today.getMonth()+1}월 ${today.getDate()}일`;
+
+  // 카드를 만든 날(스탬프) - 이번 달 본인 작성 ANYWAY 기준
+  const [stampDays, setStampDays] = useState<number[]>([]);
+  useEffect(() => {
+    const uid = auth.currentUser?.uid;
+    if (!uid) return;
+    getMyAnyways(uid).then(({ anyways }) => {
+      const days = anyways
+        .map((a) => {
+          // createdAt(Timestamp) 우선, 없으면 date(ISO)
+          let d: Date | null = null;
+          if (a.createdAt?.toDate) d = a.createdAt.toDate();
+          else if (a.date) d = new Date(a.date);
+          return d;
+        })
+        .filter((d): d is Date =>
+          !!d && !isNaN(d.getTime()) &&
+          d.getFullYear() === today.getFullYear() &&
+          d.getMonth() === today.getMonth()
+        )
+        .map((d) => d.getDate());
+      setStampDays([...new Set(days)]);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 이번 달 총 카드 수
+  const monthCount = stampDays.length;
+  // 이번 달 최장 연속 작성일 수
+  const maxStreak = (() => {
+    if (stampDays.length === 0) return 0;
+    const sorted = [...stampDays].sort((a, b) => a - b);
+    let best = 1, cur = 1;
+    for (let i = 1; i < sorted.length; i++) {
+      if (sorted[i] === sorted[i - 1] + 1) {
+        cur++;
+        best = Math.max(best, cur);
+      } else {
+        cur = 1;
+      }
+    }
+    return best;
+  })();
 
   // ── 리캡 슬라이드 ──
   if (showRecap) {
@@ -288,7 +332,7 @@ export default function StatsScreen() {
                   {/* 메시지 버블: gray/050 bg, blue/100 border, r24, pt12 pb15 px20 */}
                   <View style={s.finalMsgBubble}>
                     <PhoneForwardedIcon width={24} height={24} color={Colors.pink400} />
-                    <View style={{ alignItems: 'flex-start' }}>
+                    <View style={{ alignItems: 'center' }}>
                       <Text style={s.finalMsgBold}>
                         {'이번엔 '}<Text style={s.finalMsgHighlight}>5일</Text>{'이나 더 만났네!'}
                       </Text>
@@ -299,10 +343,10 @@ export default function StatsScreen() {
                   <View style={s.finalFooter}>
                     <View style={s.finalIconsRow}>
                       <TouchableOpacity>
-                        <DownloadIcon width={28} height={28} color={Colors.gray900} />
+                        <DownloadIcon width={28} height={28} color={Colors.gray500} />
                       </TouchableOpacity>
                       <TouchableOpacity>
-                        <OpenInNewIcon width={28} height={28} color={Colors.gray900} />
+                        <OpenInNewIcon width={28} height={28} color={Colors.gray500} />
                       </TouchableOpacity>
                     </View>
                     <TouchableOpacity
@@ -366,7 +410,7 @@ export default function StatsScreen() {
                     if (cell.type === 'empty') {
                       return <View key={cellIdx} style={[s.cell, s.cellEmpty, cellStyle]} />;
                     }
-                    const hasStamp = STAMP_DAYS.includes(cell.day!);
+                    const hasStamp = stampDays.includes(cell.day!);
                     return (
                       <View key={cellIdx} style={[s.cell, s.cellNum, cellStyle]}>
                         {hasStamp ? (
@@ -445,8 +489,8 @@ export default function StatsScreen() {
           <Text style={s.statsTitle}>통계</Text>
           <View style={s.statsRow}>
             {[
-              { label: '이번 달 ANYWAY', value: '6' },
-              { label: '이번달 연속', value: '4' },
+              { label: '이번 달 ANYWAY', value: String(monthCount) },
+              { label: '이번달 연속', value: String(maxStreak) },
             ].map((st, i) => (
               <View key={i} style={s.statBox}>
                 <Text style={s.statLabel}>{st.label}</Text>
@@ -593,20 +637,22 @@ const s = StyleSheet.create({
   finalTitle: { fontSize: 32, fontWeight: '700', color: Colors.black, lineHeight: 44, letterSpacing: -2, textAlign: 'center', fontFamily: 'JejuSamdasooBrand-Regular' },
   finalTitleBlue: { fontSize: 32, fontWeight: '700', color: '#005DE2', lineHeight: 44, letterSpacing: -2, textAlign: 'center', fontFamily: 'JejuSamdasooBrand-Regular' },
   finalStatsGrid: { gap: Space.s400, marginBottom: Space.s400, width: 226 },
-  finalStatsRow: { flexDirection: 'row', gap: 0, justifyContent: 'space-between' },
-  finalStatItem: { width: 80, gap: Space.s050, alignItems: 'flex-start' },
-  finalStatValue: { fontSize: FontSize.size800, fontWeight: '700', color: Colors.black, lineHeight: 38.4, letterSpacing: -0.64 },
-  finalStatLabel: { fontSize: FontSize.size100, color: Colors.black, lineHeight: 16.8, letterSpacing: -0.24 },
+  finalStatsRow: { flexDirection: 'row', justifyContent: 'space-between' },
+  finalStatItem: { width: 80, gap: Space.s050, alignItems: 'center' },
+  finalStatValue: { fontSize: FontSize.size800, fontWeight: '700', color: Colors.black, lineHeight: 38.4, letterSpacing: -0.64, textAlign: 'center' },
+  finalStatLabel: { fontSize: FontSize.size100, color: Colors.black, lineHeight: 16.8, letterSpacing: -0.24, textAlign: 'center' },
   finalMsgBubble: {
     backgroundColor: Colors.gray050, borderWidth: 1, borderColor: Colors.blue100,
-    borderRadius: Radius.r300, paddingVertical: Space.s150, paddingHorizontal: Space.s250,
-    alignItems: 'center', gap: Space.s100, marginBottom: Space.s250, width: '100%',
+    borderRadius: Radius.r300, paddingTop: 12, paddingBottom: 15, paddingHorizontal: Space.s250,
+    flexDirection: 'column', alignItems: 'center', gap: Space.s100,
+    marginBottom: Space.s250, width: '100%',
   },
   finalMsgTexts: { alignItems: 'center', gap: 0 },
   finalMsgBold: { fontSize: FontSize.size300, fontWeight: '700', color: Colors.black, lineHeight: 24, letterSpacing: -0.2, textAlign: 'center' },
   finalMsgHighlight: { color: '#005DE2' },
   finalMsgSub: { fontSize: FontSize.size050, color: Colors.black, lineHeight: 15, letterSpacing: -0.2, textAlign: 'center' },
-  finalFooter: { flexDirection: 'row', gap: Space.s250, justifyContent: 'flex-end', alignItems: 'center', width: '100%' },
+  finalFooter: { flexDirection: 'column', alignItems: 'flex-end', gap: Space.s250, width: '100%' },
+  finalIconsRow: { flexDirection: 'row', gap: Space.s250 },
   confirmBtn: { backgroundColor: Colors.blue500, borderRadius: Radius.r300, paddingHorizontal: Space.s250, paddingVertical: Space.s100 },
   confirmBtnText: { fontSize: FontSize.size200, fontWeight: '500', color: Colors.white, lineHeight: 16.8, letterSpacing: -0.2 },
 });

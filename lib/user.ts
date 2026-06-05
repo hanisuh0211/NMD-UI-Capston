@@ -3,6 +3,7 @@ import {
   setDoc,
   getDoc,
   updateDoc,
+  deleteDoc,
   serverTimestamp,
 } from 'firebase/firestore';
 import { db } from '../firebaseConfig';
@@ -49,6 +50,16 @@ export const getUserProfile = async (uid: string) => {
 export const updateUserProfile = async (uid: string, data: Partial<UserProfile>) => {
   try {
     await updateDoc(doc(db, 'users', uid), data);
+    return { error: null };
+  } catch (error: any) {
+    return { error: error.message };
+  }
+};
+
+// 유저 프로필 삭제 (Firestore 문서)
+export const deleteUserProfile = async (uid: string) => {
+  try {
+    await deleteDoc(doc(db, 'users', uid));
     return { error: null };
   } catch (error: any) {
     return { error: error.message };
