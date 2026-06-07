@@ -22,6 +22,7 @@ export type Anyway = {
   date: string;
   visibility: '전체 공개' | '친구 공개' | '나만 보기';
   emotion: string;
+  cardStyle?: number;  // 카드 디자인 인덱스
   createdAt?: any;
 };
 

@@ -12,6 +12,7 @@ import { generateAnywayText } from '../../lib/gemini';
 import { createAnyway, updateAnyway, getTodayAnyway, Anyway } from '../../lib/anyway';
 import { getPublicFeed } from '../../lib/feed';
 import { getUserProfile } from '../../lib/user';
+import { getCardTemplate, pickCardStyle } from '../../lib/cardTemplates';
 import { auth } from '../../firebaseConfig';
 
 // 캐릭터 ID → 얼굴(이모지) 매핑 (실제 캐릭터 아트 도입 전 임시)
@@ -29,6 +30,7 @@ type RecentFeed = {
   anywayText: string;
   time: string;
   cardDate: string;
+  cardStyle: number;
   face: string;
 };
 
@@ -104,8 +106,32 @@ export default function MainScreen() {
 
   const [saving, setSaving] = useState(false);
   const [savedId, setSavedId] = useState<string | null>(null);
+  const [cardStyle, setCardStyle] = useState(0);
   const [recentFeed, setRecentFeed] = useState<RecentFeed[]>([]);
   const [selectedFeed, setSelectedFeed] = useState<RecentFeed | null>(null);
+  const [initLoading, setInitLoading] = useState(true);
+
+  // 진입 시: 오늘 이미 만든 카드가 있으면 그 카드를 불러와 saved 화면 표시
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      const uid = auth.currentUser?.uid;
+      if (!uid) { setInitLoading(false); return; }
+      const todayCard = await getTodayAnyway(uid);
+      if (active && todayCard) {
+        setGoal(todayCard.goal);
+        setDone(todayCard.done);
+        setAnywayText(todayCard.anywayText);
+        setVisibility(todayCard.visibility);
+        setEmotion(todayCard.emotion);
+        setCardStyle(todayCard.cardStyle ?? 0);
+        setSavedId(todayCard.id ?? null);
+        setStep('saved');
+      }
+      if (active) setInitLoading(false);
+    })();
+    return () => { active = false; };
+  }, []);
 
   // 최근 피드 불러오기 (전체 공개 ANYWAY + 작성자 캐릭터)
   useEffect(() => {
@@ -133,6 +159,7 @@ export default function MainScreen() {
           anywayText: f.anywayText,
           time: formatRelTime(f),
           cardDate: itemCardDate(f),
+          cardStyle: f.cardStyle ?? 0,
           face: faceCache[f.userId] ?? '🙂',
         }))
       );
@@ -179,7 +206,8 @@ export default function MainScreen() {
         return;
       }
     } else {
-      // 신규 저장
+      // 신규 저장 - 카드 디자인 무작위 선택
+      const style = pickCardStyle();
       const { id, error } = await createAnyway({
         userId: user.uid,
         goal,
@@ -188,16 +216,30 @@ export default function MainScreen() {
         date: TODAY.toISOString(),
         visibility: visibility as '전체 공개' | '친구 공개' | '나만 보기',
         emotion,
+        cardStyle: style,
       });
       setSaving(false);
       if (error || !id) {
         Alert.alert('오류', '저장에 실패했습니다. 다시 시도해주세요.');
         return;
       }
+      setCardStyle(style);
       setSavedId(id);
     }
     setStep('saved');
   };
+
+  // 진입 시 오늘 카드 확인 중 → 로딩 표시 (홈 화면 깜빡임 방지)
+  if (initLoading) {
+    return (
+      <View style={s.root}>
+        <LinearGradient colors={[Colors.blue200, Colors.gray050, Colors.white]} style={s.gradBg} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} />
+        <SafeAreaView style={[s.safe, { alignItems: 'center', justifyContent: 'center' }]}>
+          <ActivityIndicator size="large" color={Colors.blue500} />
+        </SafeAreaView>
+      </View>
+    );
+  }
 
   // ── 홈 ──
   if (step === 'home') {
@@ -311,25 +353,19 @@ export default function MainScreen() {
                 </TouchableOpacity>
                 <TouchableWithoutFeedback onPress={() => {}}>
                   <View style={{ width: cardW, height: cardH }}>
-                    <Image
-                      source={require('../../assets/images/card_template.png')}
-                      style={{ width: cardW, height: cardH }}
-                      resizeMode="stretch"
-                    />
                     {selectedFeed && (
                       <>
-                        <View style={{
-                          position: 'absolute', left: 19 * sc, top: 68 * sc,
-                          width: 183.914 * sc, height: 88.327 * sc,
-                          alignItems: 'center', justifyContent: 'center', overflow: 'visible',
-                        }}>
-                          <View style={{ transform: [{ rotate: '-7.09deg' }] }}>
-                            <Text style={[s.cardDateText, { fontSize: 56 * sc, letterSpacing: -2.24 * sc }]}>{selectedFeed.cardDate}</Text>
-                          </View>
-                        </View>
-                        <Text style={[s.cardValueText, { position: 'absolute', left: 31 * sc, top: 181 * sc, width: 220 * sc, fontSize: 16 * sc, letterSpacing: -0.64 * sc }]}>{selectedFeed.goal}</Text>
-                        <Text style={[s.cardValueText, { position: 'absolute', left: 31 * sc, top: 247 * sc, width: 220 * sc, fontSize: 16 * sc, letterSpacing: -0.64 * sc }]}>{selectedFeed.done}</Text>
-                        <Text style={[s.cardValueText, { position: 'absolute', left: 31 * sc, top: 313 * sc, width: 220 * sc, fontSize: 16 * sc, letterSpacing: -0.64 * sc }]}>{selectedFeed.anywayText}</Text>
+                        <Image
+                          source={getCardTemplate(selectedFeed.cardStyle).image}
+                          style={{ width: cardW, height: cardH }}
+                          resizeMode="stretch"
+                        />
+                        {getCardTemplate(selectedFeed.cardStyle).renderOverlay({
+                          yymmdd: selectedFeed.cardDate,
+                          goal: selectedFeed.goal,
+                          done: selectedFeed.done,
+                          anyway: selectedFeed.anywayText,
+                        }, sc)}
                       </>
                     )}
                   </View>
@@ -530,27 +566,13 @@ export default function MainScreen() {
                 <TouchableWithoutFeedback onPress={() => {}}>
                   <View style={{ width: cardW, height: cardH }}>
                     <Image
-                      source={require('../../assets/images/card_template.png')}
+                      source={getCardTemplate(cardStyle).image}
                       style={{ width: cardW, height: cardH }}
                       resizeMode="stretch"
                     />
-                    <View style={{
-                      position: 'absolute',
-                      left: 19 * sc,
-                      top: 68 * sc,
-                      width: 183.914 * sc,
-                      height: 88.327 * sc,
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      overflow: 'visible',
-                    }}>
-                      <View style={{ transform: [{ rotate: '-7.09deg' }] }}>
-                        <Text style={[s.cardDateText, { fontSize: 56 * sc, letterSpacing: -2.24 * sc }]}>{DATE_CARD}</Text>
-                      </View>
-                    </View>
-                    <Text style={[s.cardValueText, { position: 'absolute', left: 31 * sc, top: 181 * sc, width: 220 * sc, fontSize: 16 * sc, letterSpacing: -0.64 * sc }]}>{goal}</Text>
-                    <Text style={[s.cardValueText, { position: 'absolute', left: 31 * sc, top: 247 * sc, width: 220 * sc, fontSize: 16 * sc, letterSpacing: -0.64 * sc }]}>{done}</Text>
-                    <Text style={[s.cardValueText, { position: 'absolute', left: 31 * sc, top: 313 * sc, width: 220 * sc, fontSize: 16 * sc, letterSpacing: -0.64 * sc }]}>{anywayText}</Text>
+                    {getCardTemplate(cardStyle).renderOverlay({
+                      yymmdd: DATE_CARD, goal, done, anyway: anywayText,
+                    }, sc)}
                   </View>
                 </TouchableWithoutFeedback>
               </View>
@@ -640,60 +662,14 @@ export default function MainScreen() {
                     {/* 카드 */}
                     <TouchableWithoutFeedback onPress={() => {}}>
                     <View style={{ width: cardW, height: cardH }}>
-                    {/* 피그마 카드 프레임 이미지 (텍스트 없는 버전) */}
                     <Image
-                      source={require('../../assets/images/card_template.png')}
+                      source={getCardTemplate(cardStyle).image}
                       style={{ width: cardW, height: cardH }}
                       resizeMode="stretch"
                     />
-
-                    {/* 날짜 - AVALADO 폰트, -7.09도 회전 (Figma: left=19, top=68, w=183.9, h=88.3, 56px) */}
-                    <View style={{
-                      position: 'absolute',
-                      left: 19 * sc,
-                      top: 68 * sc,
-                      width: 183.914 * sc,
-                      height: 88.327 * sc,
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      overflow: 'visible',
-                    }}>
-                      <View style={{ transform: [{ rotate: '-7.09deg' }] }}>
-                        <Text style={[s.cardDateText, { fontSize: 56 * sc, letterSpacing: -2.24 * sc }]}>
-                          {DATE_CARD}
-                        </Text>
-                      </View>
-                    </View>
-
-                    {/* Goal 값 (Figma: left=31, top=181, 16px) */}
-                    <Text style={[s.cardValueText, {
-                      position: 'absolute',
-                      left: 31 * sc,
-                      top: 181 * sc,
-                      width: 220 * sc,
-                      fontSize: 16 * sc,
-                      letterSpacing: -0.64 * sc,
-                    }]}>{goal}</Text>
-
-                    {/* Done 값 (Figma: left=31, top=247, 16px) */}
-                    <Text style={[s.cardValueText, {
-                      position: 'absolute',
-                      left: 31 * sc,
-                      top: 247 * sc,
-                      width: 220 * sc,
-                      fontSize: 16 * sc,
-                      letterSpacing: -0.64 * sc,
-                    }]}>{done}</Text>
-
-                    {/* Anyway 값 (Figma: left=31, top=313, 16px) */}
-                    <Text style={[s.cardValueText, {
-                      position: 'absolute',
-                      left: 31 * sc,
-                      top: 313 * sc,
-                      width: 220 * sc,
-                      fontSize: 16 * sc,
-                      letterSpacing: -0.64 * sc,
-                    }]}>{anywayText}</Text>
+                    {getCardTemplate(cardStyle).renderOverlay({
+                      yymmdd: DATE_CARD, goal, done, anyway: anywayText,
+                    }, sc)}
                     </View>
                     </TouchableWithoutFeedback>
                   </View>

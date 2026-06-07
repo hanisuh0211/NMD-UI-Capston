@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert,
+  View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, Image, useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -11,10 +11,8 @@ import { signUp } from '../../lib/auth';
 import { createUserProfile } from '../../lib/user';
 
 const CHARACTERS = [
-  { id: 'char1', name: '캐릭터 A', tags: ['#활발함', '#긍정적'] },
-  { id: 'char2', name: '캐릭터 B', tags: ['#차분함', '#신중함'] },
-  { id: 'char3', name: '캐릭터 C', tags: ['#유쾌함', '#엉뚱함'] },
-  { id: 'char4', name: '캐릭터 D', tags: ['#따뜻함', '#배려심'] },
+  { id: 'char1', name: 'name', image: require('../../assets/images/char_female.png') },
+  { id: 'char2', name: 'name', image: require('../../assets/images/char_male.png') },
 ];
 
 function StepDot({ active, label }: { active: boolean; label: string }) {
@@ -25,29 +23,21 @@ function StepDot({ active, label }: { active: boolean; label: string }) {
   );
 }
 
-function CharCard({ name, tags, selected, onPress }: {
-  name: string; tags: string[]; selected: boolean; onPress: () => void;
+function CharCard({ name, image, selected, onPress, width, height }: {
+  name: string; image: any; selected: boolean; onPress: () => void;
+  width: number; height: number;
 }) {
   return (
     <TouchableOpacity
-      style={[s.card, selected ? s.cardSelected : s.cardDefault]}
+      style={[s.card, { width, height }, selected ? s.cardSelected : s.cardDefault]}
       onPress={onPress}
       activeOpacity={0.8}
     >
-      {/* 캐릭터 이미지 배경 (플레이스홀더) */}
-      <View style={StyleSheet.absoluteFill}>
-        <View style={s.cardBg} />
-      </View>
-      {/* 하단 정보 */}
+      {/* 캐릭터 이미지: 카드 전체를 cover로 채움 (Figma: img object-cover size-full inset-0) */}
+      <Image source={image} style={[s.charImg, { width, height }]} resizeMode="cover" />
+      {/* 하단 이름 */}
       <View style={s.cardContent}>
         <Text style={s.cardName}>{name}</Text>
-        <View style={s.tagRow}>
-          {tags.map((tag, i) => (
-            <View key={i} style={s.tag}>
-              <Text style={s.tagText}>{tag}</Text>
-            </View>
-          ))}
-        </View>
       </View>
     </TouchableOpacity>
   );
@@ -58,6 +48,10 @@ export default function SignupStep3() {
     email: string; password: string; nickname: string;
   }>();
   const insets = useSafeAreaInsets();
+  const { width: winW } = useWindowDimensions();
+  // Figma 카드: 370×185 비율을 유지하되 화면 폭(좌우 패딩 16씩)에 맞춰 축소
+  const cardW = Math.min(370, winW - Space.s200 * 2);
+  const cardH = Math.round((cardW * 185) / 370);
   const [selectedChar, setSelectedChar] = useState(CHARACTERS[0].id);
   const [loading, setLoading] = useState(false);
 
@@ -114,9 +108,11 @@ export default function SignupStep3() {
               <CharCard
                 key={char.id}
                 name={char.name}
-                tags={char.tags}
+                image={char.image}
                 selected={selectedChar === char.id}
                 onPress={() => setSelectedChar(char.id)}
+                width={cardW}
+                height={cardH}
               />
             ))}
           </View>
@@ -158,25 +154,21 @@ const s = StyleSheet.create({
   title: { fontSize: FontSize.size700, fontWeight: '700', color: Colors.gray900, lineHeight: 38, letterSpacing: -0.2 },
   subtitle: { fontSize: FontSize.size300, color: Colors.gray700, lineHeight: LineHeight.lh300, letterSpacing: -0.6 },
   // 카드
-  cardList: { gap: Space.s200 },
+  cardList: { gap: Space.s200, alignItems: 'center' },
   card: {
-    height: 185, borderRadius: Radius.r200, padding: Space.s200,
+    alignSelf: 'center',
+    borderRadius: Radius.r200,
+    paddingHorizontal: Space.s150, paddingVertical: Space.s100,
     justifyContent: 'flex-end', overflow: 'hidden',
   },
-  cardDefault: { borderWidth: 1, borderColor: Colors.gray100 },
-  cardSelected: { borderWidth: 2, borderColor: Colors.blue400 },
-  cardBg: { flex: 1, backgroundColor: Colors.gray100, ...StyleSheet.absoluteFillObject },
-  cardContent: { gap: Space.s100 },
+  cardDefault: { borderWidth: 1, borderColor: Colors.gray100, backgroundColor: Colors.gray050 },
+  cardSelected: { borderWidth: 2, borderColor: Colors.blue400, backgroundColor: Colors.blue100 },
+  charImg: { position: 'absolute', top: 0, left: 0 },
+  cardContent: { paddingHorizontal: Space.s050, width: '100%' },
   cardName: {
     fontSize: FontSize.size500, fontWeight: '700', color: Colors.gray900,
-    lineHeight: LineHeight.lh500, letterSpacing: -0.2, paddingHorizontal: Space.s050,
+    lineHeight: LineHeight.lh500, letterSpacing: -0.2,
   },
-  tagRow: { flexDirection: 'row', gap: Space.s100 },
-  tag: {
-    backgroundColor: Colors.blue100, borderRadius: Radius.r999,
-    paddingHorizontal: Space.s200, paddingVertical: Space.s075,
-  },
-  tagText: { fontSize: FontSize.size100, color: Colors.gray900, lineHeight: LineHeight.lh100, letterSpacing: -0.2 },
   // 버튼
   bottomSection: { paddingHorizontal: Space.s200, paddingBottom: Space.s500, paddingTop: Space.s200 },
   nextBtn: { backgroundColor: Colors.blue500, borderRadius: Radius.r100, paddingVertical: Space.s150, alignItems: 'center' },

@@ -1,4 +1,4 @@
-import { doc, setDoc, Timestamp } from 'firebase/firestore';
+import { doc, setDoc, updateDoc, getDocs, collection, Timestamp } from 'firebase/firestore';
 import { db } from '../firebaseConfig';
 
 // 개발용 샘플 피드 시드 데이터
@@ -50,6 +50,7 @@ export const seedSampleFeed = async () => {
           date: created.toISOString(),
           visibility: '전체 공개',
           emotion: '같이 힘내요',
+          cardStyle: i % 2,  // 카드 디자인 번갈아
           createdAt: Timestamp.fromDate(created),
         });
       })
@@ -58,5 +59,22 @@ export const seedSampleFeed = async () => {
     return { error: null };
   } catch (error: any) {
     return { error: error.message };
+  }
+};
+
+// 기존 카드들의 디자인(cardStyle)을 0/1/2로 골고루 재배정 (1회용)
+export const reassignCardStyles = async () => {
+  try {
+    const snapshot = await getDocs(collection(db, 'anyways'));
+    let i = 0;
+    await Promise.all(
+      snapshot.docs.map((d) => {
+        const style = i++ % 3; // 0, 1, 2 순환
+        return updateDoc(doc(db, 'anyways', d.id), { cardStyle: style });
+      })
+    );
+    return { count: snapshot.size, error: null };
+  } catch (error: any) {
+    return { count: 0, error: error.message };
   }
 };

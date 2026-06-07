@@ -12,10 +12,10 @@ import { Colors, FontSize, LineHeight, Space, Radius } from '../../theme';
 import NotificationsIcon from '../../assets/icons/notifications.svg';
 import { getPublicFeed } from '../../lib/feed';
 import { Anyway } from '../../lib/anyway';
-import { seedSampleFeed } from '../../lib/seed';
+import { getCardTemplate } from '../../lib/cardTemplates';
+import { seedSampleFeed, reassignCardStyles } from '../../lib/seed';
 import { Alert } from 'react-native';
 
-const CARD_IMG = require('../../assets/images/card_template.png');
 const BORDER_COLORS = [Colors.blue300, Colors.pink300];
 const PAGE_SIZE = 10;
 
@@ -101,6 +101,24 @@ export default function FeedScreen() {
     Alert.alert('완료', '샘플 피드 5개를 생성했어요.');
   };
 
+  // 임시: 기존 카드 디자인 골고루 재배정
+  const handleReassign = async () => {
+    const { count, error } = await reassignCardStyles();
+    if (error) {
+      Alert.alert('오류', '재배정 실패: ' + error);
+      return;
+    }
+    // 목록 다시 로드
+    setItems([]);
+    lastDocRef.current = undefined;
+    setHasMore(true);
+    loadingRef.current = false;
+    const { feed, lastVisible } = await getPublicFeed(undefined, PAGE_SIZE);
+    setItems(feed);
+    lastDocRef.current = lastVisible ?? undefined;
+    Alert.alert('완료', `카드 ${count}개의 디자인을 재배정했어요.`);
+  };
+
   // 끝에 도달하면 다음 페이지 (무한 스크롤)
   const handleScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const { layoutMeasurement, contentOffset, contentSize } = e.nativeEvent;
@@ -123,22 +141,17 @@ export default function FeedScreen() {
     const bgH = 476 * scale;
     const left = (w - bgW) / 2;
     const top = (h - bgH) / 2;
+    const tpl = getCardTemplate(item.cardStyle);
     return (
       <View style={[StyleSheet.absoluteFill, { overflow: 'hidden' }]} pointerEvents="none">
         <View style={{ position: 'absolute', left, top, width: bgW, height: bgH }}>
-          <Image source={CARD_IMG} style={{ width: bgW, height: bgH }} resizeMode="stretch" />
-          <View style={{
-            position: 'absolute', left: 19 * scale, top: 68 * scale,
-            width: 183.914 * scale, height: 88.327 * scale,
-            alignItems: 'center', justifyContent: 'center', overflow: 'visible',
-          }}>
-            <View style={{ transform: [{ rotate: '-7.09deg' }] }}>
-              <Text style={[s.cardDateText, { fontSize: 56 * scale, letterSpacing: -2.24 * scale }]}>{cardDate(item)}</Text>
-            </View>
-          </View>
-          <Text numberOfLines={2} style={[s.cardValueText, { position: 'absolute', left: 31 * scale, top: 181 * scale, width: 220 * scale, fontSize: 16 * scale, letterSpacing: -0.64 * scale }]}>{item.goal}</Text>
-          <Text numberOfLines={2} style={[s.cardValueText, { position: 'absolute', left: 31 * scale, top: 247 * scale, width: 220 * scale, fontSize: 16 * scale, letterSpacing: -0.64 * scale }]}>{item.done}</Text>
-          <Text numberOfLines={2} style={[s.cardValueText, { position: 'absolute', left: 31 * scale, top: 313 * scale, width: 220 * scale, fontSize: 16 * scale, letterSpacing: -0.64 * scale }]}>{item.anywayText}</Text>
+          <Image source={tpl.image} style={{ width: bgW, height: bgH }} resizeMode="stretch" />
+          {tpl.renderOverlay({
+            yymmdd: cardDate(item),
+            goal: item.goal,
+            done: item.done,
+            anyway: item.anywayText,
+          }, scale)}
         </View>
       </View>
     );
@@ -177,10 +190,15 @@ export default function FeedScreen() {
         >
           {/* 헤더 */}
           <View style={s.header}>
-            {/* 임시: 샘플 피드 생성 버튼 (확인 후 제거 예정) */}
-            <TouchableOpacity style={s.seedBtn} onPress={handleSeed}>
-              <Text style={s.seedBtnText}>샘플 생성</Text>
-            </TouchableOpacity>
+            {/* 임시: 개발용 버튼 (확인 후 제거 예정) */}
+            <View style={{ flexDirection: 'row', gap: Space.s100 }}>
+              <TouchableOpacity style={s.seedBtn} onPress={handleSeed}>
+                <Text style={s.seedBtnText}>샘플 생성</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={s.seedBtn} onPress={handleReassign}>
+                <Text style={s.seedBtnText}>디자인 재배정</Text>
+              </TouchableOpacity>
+            </View>
             <NotificationsIcon width={24} height={24} color={Colors.gray900} />
           </View>
 
@@ -241,25 +259,15 @@ export default function FeedScreen() {
               </TouchableOpacity>
               <TouchableWithoutFeedback onPress={() => {}}>
                 <View style={{ width: popCardW, height: popCardH }}>
-                  <Image source={CARD_IMG} style={{ width: popCardW, height: popCardH }} resizeMode="stretch" />
                   {selected && (
                     <>
-                      {/* 날짜 */}
-                      <View style={{
-                        position: 'absolute', left: 19 * sc, top: 68 * sc,
-                        width: 183.914 * sc, height: 88.327 * sc,
-                        alignItems: 'center', justifyContent: 'center', overflow: 'visible',
-                      }}>
-                        <View style={{ transform: [{ rotate: '-7.09deg' }] }}>
-                          <Text style={[s.cardDateText, { fontSize: 56 * sc, letterSpacing: -2.24 * sc }]}>
-                            {cardDate(selected)}
-                          </Text>
-                        </View>
-                      </View>
-                      {/* 값 */}
-                      <Text style={[s.cardValueText, { position: 'absolute', left: 31 * sc, top: 181 * sc, width: 220 * sc, fontSize: 16 * sc, letterSpacing: -0.64 * sc }]}>{selected.goal}</Text>
-                      <Text style={[s.cardValueText, { position: 'absolute', left: 31 * sc, top: 247 * sc, width: 220 * sc, fontSize: 16 * sc, letterSpacing: -0.64 * sc }]}>{selected.done}</Text>
-                      <Text style={[s.cardValueText, { position: 'absolute', left: 31 * sc, top: 313 * sc, width: 220 * sc, fontSize: 16 * sc, letterSpacing: -0.64 * sc }]}>{selected.anywayText}</Text>
+                      <Image source={getCardTemplate(selected.cardStyle).image} style={{ width: popCardW, height: popCardH }} resizeMode="stretch" />
+                      {getCardTemplate(selected.cardStyle).renderOverlay({
+                        yymmdd: cardDate(selected),
+                        goal: selected.goal,
+                        done: selected.done,
+                        anyway: selected.anywayText,
+                      }, sc)}
                     </>
                   )}
                 </View>
