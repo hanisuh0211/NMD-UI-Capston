@@ -3,6 +3,7 @@ import {
   signInWithEmailAndPassword,
   signOut,
   onAuthStateChanged,
+  updatePassword,
   User,
 } from 'firebase/auth';
 import { auth } from '../firebaseConfig';
@@ -34,6 +35,18 @@ export const logOut = async () => {
     return { error: null };
   } catch (error: any) {
     return { error: error.message };
+  }
+};
+
+// 비밀번호 변경 (현재 로그인된 유저)
+export const updateUserPassword = async (newPassword: string) => {
+  try {
+    const user = auth.currentUser;
+    if (!user) return { error: 'no-user' };
+    await updatePassword(user, newPassword);
+    return { error: null };
+  } catch (error: any) {
+    return { error: error.code || error.message };
   }
 };
 

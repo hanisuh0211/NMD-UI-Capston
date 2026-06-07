@@ -53,8 +53,8 @@ const card1: CardTemplate = {
           position: 'absolute', left: 0, top: 121 * sc, width: 216 * sc,
           alignItems: 'flex-end',
         }}>
-          <Text style={[st.date, { fontSize: 58 * sc, lineHeight: 58 * 0.9 * sc, textAlign: 'right' }]}>{yy}</Text>
-          <Text style={[st.date, { fontSize: 58 * sc, lineHeight: 58 * 0.9 * sc, textAlign: 'right' }]}>{mmdd}</Text>
+          <Text style={[st.date, { fontSize: 58 * sc, lineHeight: 58 * 1.1 * sc, textAlign: 'right' }]}>{yy}</Text>
+          <Text style={[st.date, { fontSize: 58 * sc, lineHeight: 58 * 1.1 * sc, textAlign: 'right' }]}>{mmdd}</Text>
         </View>
         <Text style={[st.value, { position: 'absolute', left: 26 * sc, top: 268 * sc, width: 230 * sc, fontSize: 16 * sc, letterSpacing: -0.64 * sc }]}>{d.goal}</Text>
         <Text style={[st.value, { position: 'absolute', left: 26 * sc, top: 334 * sc, width: 230 * sc, fontSize: 16 * sc, letterSpacing: -0.64 * sc }]}>{d.done}</Text>

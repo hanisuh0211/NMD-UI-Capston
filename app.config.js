@@ -28,6 +28,14 @@ export default {
     plugins: [
       "expo-router",
       [
+        "expo-media-library",
+        {
+          photosPermission: "리캡 이미지를 갤러리에 저장하기 위해 사진 접근이 필요해요.",
+          savePhotosPermission: "리캡 이미지를 갤러리에 저장하기 위해 사진 접근이 필요해요.",
+          isAccessMediaLocationEnabled: false,
+        },
+      ],
+      [
         "expo-splash-screen",
         {
           image: "./assets/images/splash-icon.png",

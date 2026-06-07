@@ -62,6 +62,39 @@ export const seedSampleFeed = async () => {
   }
 };
 
+// 개발용: 현재 사용자의 "지난달" ANYWAY 카드 3개 생성 (리캡 테스트용)
+export const seedMyLastMonthCards = async (uid: string) => {
+  try {
+    const now = new Date();
+    // 지난달 1일 기준 (1월이면 자동으로 전년 12월로 정규화)
+    const base = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const samples = [
+      { day: 10, goal: '영단어 30개 외우기', done: '책상 앞에 앉음', anyway: '그래도 책상 앞엔 앉았잖아!' },
+      { day: 11, goal: '30분 달리기',       done: '10분 걸음',     anyway: '그래도 신발은 신었잖아!' },
+      { day: 12, goal: '방 청소하기',       done: '책상만 정리',   anyway: '그래도 책상은 깨끗하다!' },
+    ];
+    await Promise.all(
+      samples.map((sx, i) => {
+        const created = new Date(base.getFullYear(), base.getMonth(), sx.day, 12, 0, 0);
+        return setDoc(doc(db, 'anyways', `${uid}_seed_${i + 1}`), {
+          userId: uid,
+          goal: sx.goal,
+          done: sx.done,
+          anywayText: sx.anyway,
+          date: created.toISOString(),
+          visibility: '나만 보기',
+          emotion: '같이 힘내요',
+          cardStyle: i % 3,
+          createdAt: Timestamp.fromDate(created),
+        });
+      })
+    );
+    return { error: null };
+  } catch (error: any) {
+    return { error: error.message };
+  }
+};
+
 // 기존 카드들의 디자인(cardStyle)을 0/1/2로 골고루 재배정 (1회용)
 export const reassignCardStyles = async () => {
   try {

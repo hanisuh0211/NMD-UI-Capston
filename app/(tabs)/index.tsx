@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { useFocusEffect } from 'expo-router';
 import {
   View, Text, StyleSheet, TouchableOpacity,
   ScrollView, TextInput, StatusBar, ActivityIndicator,
@@ -14,14 +15,12 @@ import { getPublicFeed } from '../../lib/feed';
 import { getUserProfile } from '../../lib/user';
 import { getCardTemplate, pickCardStyle } from '../../lib/cardTemplates';
 import { auth } from '../../firebaseConfig';
+import { onAuthChanged } from '../../lib/auth';
+import CharacterAvatar from '../../components/CharacterAvatar';
 
-// 캐릭터 ID → 얼굴(이모지) 매핑 (실제 캐릭터 아트 도입 전 임시)
-const CHARACTER_FACES: Record<string, string> = {
-  char1: '🐱',
-  char2: '🐶',
-  char3: '🐻',
-  char4: '🐰',
-};
+// 카드 배경 그라데이션 (Figma card-calling: 위 흰색 → 아래 연분홍 pink050)
+const CARD_GRADIENT = [Colors.white, Colors.white, Colors.pink050] as const;
+const CARD_GRADIENT_LOCS = [0, 0.5, 1] as const;
 
 type RecentFeed = {
   id: string;
@@ -31,12 +30,14 @@ type RecentFeed = {
   time: string;
   cardDate: string;
   cardStyle: number;
-  face: string;
+  char: string;  // 작성자 캐릭터 id (char1/char2)
 };
 
 import NotificationsIcon from '../../assets/icons/notifications.svg';
 import Flag2Icon from '../../assets/icons/flag_2.svg';
 import RewardedAdsIcon from '../../assets/icons/rewarded_ads.svg';
+import Flag2BlueIcon from '../../assets/icons/flag_2_blue.svg';
+import RewardedAdsBlueIcon from '../../assets/icons/rewarded_ads_blue.svg';
 import ArrowForwardIosIcon from '../../assets/icons/arrow_forward_ios.svg';
 import ArrowBackIcon from '../../assets/icons/arrow_back.svg';
 import CallIcon from '../../assets/icons/call.svg';
@@ -110,6 +111,33 @@ export default function MainScreen() {
   const [recentFeed, setRecentFeed] = useState<RecentFeed[]>([]);
   const [selectedFeed, setSelectedFeed] = useState<RecentFeed | null>(null);
   const [initLoading, setInitLoading] = useState(true);
+  const [userChar, setUserChar] = useState('char1');
+  const [daysSince, setDaysSince] = useState(0);
+  const [nickname, setNickname] = useState('');
+
+  // 현재 사용자 캐릭터 + 닉네임 + 가입 후 경과일 불러오기
+  const loadProfile = useCallback(async () => {
+    const uid = auth.currentUser?.uid;
+    if (!uid) return;
+    const { profile } = await getUserProfile(uid);
+    if (!profile) return;
+    if (profile.character) setUserChar(profile.character);
+    if (profile.nickname) setNickname(profile.nickname);
+    if (profile.createdAt) {
+      const createdDate: Date =
+        typeof profile.createdAt.toDate === 'function'
+          ? profile.createdAt.toDate()
+          : new Date(profile.createdAt);
+      const diff = Math.floor((Date.now() - createdDate.getTime()) / (1000 * 60 * 60 * 24));
+      setDaysSince(diff + 1);
+    }
+  }, []);
+
+  // 인증 복원 타이밍 대응: 로그인 상태가 확정되면 프로필 로드
+  useEffect(() => {
+    const unsub = onAuthChanged((user) => { if (user) loadProfile(); });
+    return unsub;
+  }, [loadProfile]);
 
   // 진입 시: 오늘 이미 만든 카드가 있으면 그 카드를 불러와 saved 화면 표시
   useEffect(() => {
@@ -134,42 +162,46 @@ export default function MainScreen() {
   }, []);
 
   // 최근 피드 불러오기 (전체 공개 ANYWAY + 작성자 캐릭터)
-  useEffect(() => {
-    let active = true;
-    (async () => {
-      const { feed } = await getPublicFeed(undefined, 5);
-      if (!feed.length) return;
+  const loadFeed = useCallback(async () => {
+    const { feed } = await getPublicFeed(undefined, 5);
+    if (!feed.length) { setRecentFeed([]); return; }
 
-      // 작성자별 캐릭터 조회 (중복 userId는 한 번만)
-      const faceCache: Record<string, string> = {};
-      const uniqueIds = [...new Set(feed.map(f => f.userId))];
-      await Promise.all(
-        uniqueIds.map(async (uid) => {
-          const { profile } = await getUserProfile(uid);
-          faceCache[uid] = CHARACTER_FACES[profile?.character ?? ''] ?? '🙂';
-        })
-      );
+    // 작성자별 캐릭터 조회 (중복 userId는 한 번만, 매 호출마다 최신값)
+    const charCache: Record<string, string> = {};
+    const uniqueIds = [...new Set(feed.map(f => f.userId))];
+    await Promise.all(
+      uniqueIds.map(async (uid) => {
+        const { profile } = await getUserProfile(uid);
+        charCache[uid] = profile?.character ?? 'char1';
+      })
+    );
 
-      if (!active) return;
-      setRecentFeed(
-        feed.map((f: Anyway) => ({
-          id: f.id ?? '',
-          goal: f.goal,
-          done: f.done,
-          anywayText: f.anywayText,
-          time: formatRelTime(f),
-          cardDate: itemCardDate(f),
-          cardStyle: f.cardStyle ?? 0,
-          face: faceCache[f.userId] ?? '🙂',
-        }))
-      );
-    })();
-    return () => { active = false; };
-  }, [step]);
+    setRecentFeed(
+      feed.map((f: Anyway) => ({
+        id: f.id ?? '',
+        goal: f.goal,
+        done: f.done,
+        anywayText: f.anywayText,
+        time: formatRelTime(f),
+        cardDate: itemCardDate(f),
+        cardStyle: f.cardStyle ?? 0,
+        char: charCache[f.userId] ?? 'char1',
+      }))
+    );
+  }, []);
+
+  useEffect(() => { loadFeed(); }, [step, loadFeed]);
+
+  // 화면에 돌아올 때마다 프로필+피드 재로드 (마이페이지에서 캐릭터 변경 시 즉시 반영)
+  useFocusEffect(
+    useCallback(() => { loadProfile(); loadFeed(); }, [loadProfile, loadFeed])
+  );
 
   // 제작하기 버튼 → AI 문구 생성 후 result로 이동
   const handleMake = async () => {
     setAnywayLoading(true);
+    // 신규 제작이면 이 시점에 카드 디자인을 확정 → 미리보기('전환')와 최종 저장 카드가 동일
+    if (!savedId) setCardStyle(pickCardStyle());
     setStep('result');
     const text = await generateAnywayText(goal, done);
     setAnywayText(text);
@@ -206,8 +238,7 @@ export default function MainScreen() {
         return;
       }
     } else {
-      // 신규 저장 - 카드 디자인 무작위 선택
-      const style = pickCardStyle();
+      // 신규 저장 - 제작하기 시점에 확정한 카드 디자인(cardStyle)을 그대로 사용
       const { id, error } = await createAnyway({
         userId: user.uid,
         goal,
@@ -216,14 +247,13 @@ export default function MainScreen() {
         date: TODAY.toISOString(),
         visibility: visibility as '전체 공개' | '친구 공개' | '나만 보기',
         emotion,
-        cardStyle: style,
+        cardStyle,
       });
       setSaving(false);
       if (error || !id) {
         Alert.alert('오류', '저장에 실패했습니다. 다시 시도해주세요.');
         return;
       }
-      setCardStyle(style);
       setSavedId(id);
     }
     setStep('saved');
@@ -258,16 +288,24 @@ export default function MainScreen() {
 
             <View style={s.titleSection}>
               <Text style={s.dateText}>{DATE_STR}</Text>
-              <Text style={s.daysText}>2days</Text>
+              <Text style={s.daysText}>{daysSince}days</Text>
             </View>
 
-            <View style={s.callingCard}>
+            <LinearGradient
+              colors={CARD_GRADIENT}
+              locations={CARD_GRADIENT_LOCS}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 0, y: 1 }}
+              style={s.callingCardHome}
+            >
               <View style={s.avatarWrap}>
-                <View style={s.avatarCircle} />
+                <CharacterAvatar character={userChar} size={100} />
               </View>
-              <Text style={s.cardTitle}>오늘 하루 어땠어?</Text>
-              <View style={s.cardSubRow}>
-                <Text style={s.cardSub}>name! 시간될 때 알려줘!</Text>
+              <View style={s.cardTitleWrap}>
+                <Text style={s.cardTitle}>오늘 하루 어땠어?</Text>
+                <View style={s.cardSubRow}>
+                  <Text style={s.cardSub}>{nickname || 'name'}! 시간될 때 알려줘!</Text>
+                </View>
               </View>
 
               <View style={s.writingContainer}>
@@ -302,7 +340,7 @@ export default function MainScreen() {
               >
                 <Text style={[s.makeBtnText, goal && done ? s.makeBtnTextActive : {}]}>제작하기</Text>
               </TouchableOpacity>
-            </View>
+            </LinearGradient>
 
             <View style={s.feedSection}>
               <View style={s.feedHeader}>
@@ -322,7 +360,7 @@ export default function MainScreen() {
                     style={s.feedItem}
                   >
                     <View style={s.feedAvatar}>
-                      <Text style={s.feedAvatarFace}>{item.face}</Text>
+                      <CharacterAvatar character={item.char} size={48} />
                     </View>
                     <View style={s.feedTextWrap}>
                       <View style={s.feedCapRow}>
@@ -390,8 +428,8 @@ export default function MainScreen() {
                 <ArrowBackIcon width={24} height={24} color={Colors.gray900} />
               </TouchableOpacity>
             </View>
-            <View style={s.callHeader}>
-              <View style={s.avatarSmall} />
+            <View style={[s.callHeader, { marginTop: Space.s500 }]}>
+              <CharacterAvatar character={userChar} size={96} />
               <View style={s.callHeaderText}>
                 <View style={s.callMeta}>
                   <CallIcon width={20} height={20} color={Colors.gray700} />
@@ -432,8 +470,8 @@ export default function MainScreen() {
                 <ArrowBackIcon width={24} height={24} color={Colors.gray900} />
               </TouchableOpacity>
             </View>
-            <View style={s.callHeader}>
-              <View style={s.avatarSmall} />
+            <View style={[s.callHeader, { marginTop: Space.s500 }]}>
+              <CharacterAvatar character={userChar} size={96} />
               <View style={s.callHeaderText}>
                 <View style={s.callMeta}>
                   <CallIcon width={20} height={20} color={Colors.gray700} />
@@ -471,7 +509,7 @@ export default function MainScreen() {
           <ScrollView contentContainerStyle={[s.container, { paddingBottom: 120 }]}>
             <View style={s.callingCardResult}>
               <View style={s.callHeader}>
-                <View style={s.avatarSmall} />
+                <CharacterAvatar character={userChar} size={96} />
                 <View style={s.callHeaderText}>
                   <View style={s.callMeta}>
                     <CallIcon width={20} height={20} color={Colors.gray700} />
@@ -496,14 +534,14 @@ export default function MainScreen() {
               <View style={s.textRows}>
                 <View style={s.textRow}>
                   <View style={s.textRowLeft}>
-                    <Flag2Icon width={20} height={20} />
+                    <Flag2BlueIcon width={20} height={20} />
                     <Text style={s.textRowLabel}>GOAL</Text>
                   </View>
                   <Text style={s.textRowValue}>{goal}</Text>
                 </View>
                 <View style={s.textRow}>
                   <View style={s.textRowLeft}>
-                    <RewardedAdsIcon width={20} height={20} />
+                    <RewardedAdsBlueIcon width={20} height={20} />
                     <Text style={s.textRowLabel}>DONE</Text>
                   </View>
                   <Text style={s.textRowValue}>{done}</Text>
@@ -598,11 +636,17 @@ export default function MainScreen() {
             </View>
             <View style={s.titleSection}>
               <Text style={s.dateText}>{DATE_STR}</Text>
-              <Text style={s.daysText}>2days</Text>
+              <Text style={s.daysText}>{daysSince}days</Text>
             </View>
-            <View style={s.callingCard}>
+            <LinearGradient
+              colors={CARD_GRADIENT}
+              locations={CARD_GRADIENT_LOCS}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 0, y: 1 }}
+              style={s.callingCardHome}
+            >
               <View style={s.callHeader}>
-                <View style={s.avatarSmall} />
+                <CharacterAvatar character={userChar} size={64} />
                 <View style={s.callHeaderText}>
                   <View style={s.callMeta}>
                     <CallIcon width={20} height={20} color={Colors.gray700} />
@@ -614,14 +658,14 @@ export default function MainScreen() {
               <View style={s.textRows}>
                 <View style={s.textRow}>
                   <View style={s.textRowLeft}>
-                    <Flag2Icon width={20} height={20} />
+                    <Flag2BlueIcon width={20} height={20} />
                     <Text style={s.textRowLabel}>GOAL</Text>
                   </View>
                   <Text style={s.textRowValue}>{goal}</Text>
                 </View>
                 <View style={s.textRow}>
                   <View style={s.textRowLeft}>
-                    <RewardedAdsIcon width={20} height={20} />
+                    <RewardedAdsBlueIcon width={20} height={20} />
                     <Text style={s.textRowLabel}>DONE</Text>
                   </View>
                   <Text style={s.textRowValue}>{done}</Text>
@@ -675,7 +719,7 @@ export default function MainScreen() {
                   </View>
                 </TouchableWithoutFeedback>
               </Modal>
-            </View>
+            </LinearGradient>
 
             <View style={s.feedSection}>
               <View style={s.feedHeader}>
@@ -695,7 +739,7 @@ export default function MainScreen() {
                     style={s.feedItem}
                   >
                     <View style={s.feedAvatar}>
-                      <Text style={s.feedAvatarFace}>{item.face}</Text>
+                      <CharacterAvatar character={item.char} size={48} />
                     </View>
                     <View style={s.feedTextWrap}>
                       <View style={s.feedCapRow}>
@@ -726,25 +770,19 @@ export default function MainScreen() {
                 </TouchableOpacity>
                 <TouchableWithoutFeedback onPress={() => {}}>
                   <View style={{ width: cardW, height: cardH }}>
-                    <Image
-                      source={require('../../assets/images/card_template.png')}
-                      style={{ width: cardW, height: cardH }}
-                      resizeMode="stretch"
-                    />
                     {selectedFeed && (
                       <>
-                        <View style={{
-                          position: 'absolute', left: 19 * sc, top: 68 * sc,
-                          width: 183.914 * sc, height: 88.327 * sc,
-                          alignItems: 'center', justifyContent: 'center', overflow: 'visible',
-                        }}>
-                          <View style={{ transform: [{ rotate: '-7.09deg' }] }}>
-                            <Text style={[s.cardDateText, { fontSize: 56 * sc, letterSpacing: -2.24 * sc }]}>{selectedFeed.cardDate}</Text>
-                          </View>
-                        </View>
-                        <Text style={[s.cardValueText, { position: 'absolute', left: 31 * sc, top: 181 * sc, width: 220 * sc, fontSize: 16 * sc, letterSpacing: -0.64 * sc }]}>{selectedFeed.goal}</Text>
-                        <Text style={[s.cardValueText, { position: 'absolute', left: 31 * sc, top: 247 * sc, width: 220 * sc, fontSize: 16 * sc, letterSpacing: -0.64 * sc }]}>{selectedFeed.done}</Text>
-                        <Text style={[s.cardValueText, { position: 'absolute', left: 31 * sc, top: 313 * sc, width: 220 * sc, fontSize: 16 * sc, letterSpacing: -0.64 * sc }]}>{selectedFeed.anywayText}</Text>
+                        <Image
+                          source={getCardTemplate(selectedFeed.cardStyle).image}
+                          style={{ width: cardW, height: cardH }}
+                          resizeMode="stretch"
+                        />
+                        {getCardTemplate(selectedFeed.cardStyle).renderOverlay({
+                          yymmdd: selectedFeed.cardDate,
+                          goal: selectedFeed.goal,
+                          done: selectedFeed.done,
+                          anyway: selectedFeed.anywayText,
+                        }, sc)}
                       </>
                     )}
                   </View>
@@ -770,12 +808,15 @@ const s = StyleSheet.create({
   subHeader: { flexDirection: 'row', alignItems: 'center', paddingVertical: Space.s100 },
   titleSection: { alignItems: 'center' },
   dateText: { fontSize: FontSize.size500, fontWeight: '700', color: Colors.gray700, lineHeight: LineHeight.lh500, letterSpacing: -0.2 },
-  daysText: { fontSize: FontSize.size900, fontWeight: '700', color: Colors.gray900, lineHeight: LineHeight.lh900, letterSpacing: -0.6 },
+  daysText: { fontSize: FontSize.size900, fontFamily: 'JejuSamdasooBrand-Bold', color: Colors.gray900, lineHeight: LineHeight.lh900, letterSpacing: -0.6 },
   callingCard: { backgroundColor: Colors.gray050, borderWidth: 1, borderColor: Colors.gray100, borderRadius: Radius.r300, paddingHorizontal: Space.s200, paddingTop: Space.s300, paddingBottom: Space.s200, gap: Space.s300, marginTop: Space.s300, shadowColor: Colors.black, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.05, shadowRadius: 6, elevation: 2 },
+  // 홈 카드: 위 흰색 → 아래 연분홍 그라데이션 + blue200 테두리 (Figma card-calling)
+  callingCardHome: { borderWidth: 1, borderColor: Colors.blue200, borderRadius: Radius.r300, paddingHorizontal: Space.s200, paddingTop: Space.s300, paddingBottom: Space.s200, gap: Space.s300, marginTop: Space.s300, shadowColor: Colors.black, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.05, shadowRadius: 6, elevation: 2 },
   callingCardResult: { backgroundColor: Colors.gray050, borderWidth: 1, borderColor: Colors.gray100, borderRadius: Radius.r300, paddingHorizontal: Space.s200, paddingTop: Space.s300, paddingBottom: Space.s200, gap: Space.s300, marginTop: Space.s300, shadowColor: Colors.black, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.05, shadowRadius: 6, elevation: 2 },
   avatarWrap: { alignItems: 'center' },
   avatarCircle: { width: 80, height: 80, borderRadius: 40, backgroundColor: Colors.gray100, borderWidth: 1.5, borderColor: Colors.pink400 },
   avatarSmall: { width: 56, height: 56, borderRadius: 28, backgroundColor: Colors.gray100, borderWidth: 1.5, borderColor: Colors.pink400 },
+  cardTitleWrap: { alignItems: 'center', gap: Space.s050 },
   cardTitle: { fontSize: FontSize.size600, fontWeight: '700', color: Colors.gray900, lineHeight: LineHeight.lh600, letterSpacing: -0.4, textAlign: 'center' },
   cardSubRow: { flexDirection: 'row', justifyContent: 'center' },
   cardSub: { fontSize: FontSize.size300, color: Colors.gray700, lineHeight: LineHeight.lh300, letterSpacing: -0.6 },
@@ -794,8 +835,7 @@ const s = StyleSheet.create({
   feedHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingLeft: Space.s050, paddingBottom: Space.s300 },
   feedTitle: { fontSize: FontSize.size600, fontWeight: '700', color: Colors.gray900, lineHeight: LineHeight.lh600, letterSpacing: -0.4 },
   feedItem: { backgroundColor: Colors.blue100, borderRadius: Radius.r200, flexDirection: 'row', alignItems: 'center', paddingLeft: Space.s200, paddingRight: Space.s250, paddingVertical: Space.s250, gap: Space.s200, marginBottom: Space.s200, shadowColor: Colors.black, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.05, shadowRadius: 6, elevation: 1 },
-  feedAvatar: { width: 48, height: 48, borderRadius: 24, backgroundColor: Colors.gray100, borderWidth: 1, borderColor: Colors.pink400, alignItems: 'center', justifyContent: 'center' },
-  feedAvatarFace: { fontSize: 24 },
+  feedAvatar: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center' },
   feedEmptyText: { fontSize: FontSize.size200, color: Colors.gray400, letterSpacing: -0.6, paddingVertical: Space.s200 },
   feedTextWrap: { flex: 1 },
   feedCapRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingBottom: Space.s025 },

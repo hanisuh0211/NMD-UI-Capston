@@ -11,6 +11,7 @@ import { DocumentSnapshot } from 'firebase/firestore';
 import { Colors, FontSize, LineHeight, Space, Radius } from '../../theme';
 import NotificationsIcon from '../../assets/icons/notifications.svg';
 import { getPublicFeed } from '../../lib/feed';
+import { getUserProfile } from '../../lib/user';
 import { Anyway } from '../../lib/anyway';
 import { getCardTemplate } from '../../lib/cardTemplates';
 import { seedSampleFeed, reassignCardStyles } from '../../lib/seed';
@@ -47,8 +48,32 @@ export default function FeedScreen() {
   const [items, setItems] = useState<Anyway[]>([]);
   const [loading, setLoading] = useState(false);
   const [hasMore, setHasMore] = useState(true);
+  const [nicknames, setNicknames] = useState<Record<string, string>>({});
   const lastDocRef = useRef<DocumentSnapshot | undefined>(undefined);
   const loadingRef = useRef(false);
+
+  // 로드된 피드의 작성자 닉네임 조회 (캐시에 없는 userId만)
+  useEffect(() => {
+    const missing = [...new Set(items.map(i => i.userId))]
+      .filter((uid) => uid && !(uid in nicknames));
+    if (missing.length === 0) return;
+    let active = true;
+    Promise.all(
+      missing.map(async (uid) => {
+        const { profile } = await getUserProfile(uid);
+        return [uid, profile?.nickname?.trim() || 'name'] as const;
+      })
+    ).then((entries) => {
+      if (!active) return;
+      setNicknames((prev) => {
+        const next = { ...prev };
+        entries.forEach(([uid, name]) => { next[uid] = name; });
+        return next;
+      });
+    });
+    return () => { active = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items]);
 
   const { height: screenHeight } = useWindowDimensions();
   const contentW = screenWidth - Space.s200 * 2;
@@ -167,7 +192,7 @@ export default function FeedScreen() {
     >
       {renderCardBg(item, w, h)}
       <View style={s.metaRow}>
-        <Text style={s.metaName}>name</Text>
+        <Text style={s.metaName}>{nicknames[item.userId] ?? 'name'}</Text>
         <Text style={s.metaTime}>{formatTime(item)}</Text>
       </View>
       <View style={s.textRow}>
