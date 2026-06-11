@@ -19,6 +19,7 @@ export const Colors = {
   red500: '#DE2E3A',
   pink400: '#F559AF',
   pink300: '#FF7DC0',
+  pink100: '#FFDBEC',
   pink050: '#FFF5FA',
   opacityBlack100: 'rgba(18,18,18,0.1)',
   opacityBlack200: 'rgba(18,18,18,0.2)',

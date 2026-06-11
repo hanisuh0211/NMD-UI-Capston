@@ -28,10 +28,13 @@ export default function RootLayout() {
       <Stack.Screen name="index" />
       <Stack.Screen name="login" />
       <Stack.Screen name="loading" />
+      <Stack.Screen name="onboarding" />
       <Stack.Screen name="signup/step1" />
       <Stack.Screen name="signup/step2" />
       <Stack.Screen name="signup/step3" />
       <Stack.Screen name="(tabs)" />
+      <Stack.Screen name="my/nickname" />
+      <Stack.Screen name="my/password" />
     </Stack>
   );
 }

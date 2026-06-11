@@ -4,6 +4,8 @@ import {
   signOut,
   onAuthStateChanged,
   updatePassword,
+  EmailAuthProvider,
+  reauthenticateWithCredential,
   User,
 } from 'firebase/auth';
 import { auth } from '../firebaseConfig';
@@ -44,6 +46,20 @@ export const updateUserPassword = async (newPassword: string) => {
     const user = auth.currentUser;
     if (!user) return { error: 'no-user' };
     await updatePassword(user, newPassword);
+    return { error: null };
+  } catch (error: any) {
+    return { error: error.code || error.message };
+  }
+};
+
+// 비밀번호 변경 (현재 비밀번호로 재인증 후 변경)
+export const changePassword = async (currentPw: string, newPw: string) => {
+  try {
+    const user = auth.currentUser;
+    if (!user || !user.email) return { error: 'no-user' };
+    const cred = EmailAuthProvider.credential(user.email, currentPw);
+    await reauthenticateWithCredential(user, cred);
+    await updatePassword(user, newPw);
     return { error: null };
   } catch (error: any) {
     return { error: error.code || error.message };

@@ -10,17 +10,38 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Alert } from 'react-native';
 import { Colors, FontSize, LineHeight, Space, Radius } from '../../theme';
 import { generateAnywayText } from '../../lib/gemini';
-import { createAnyway, updateAnyway, getTodayAnyway, Anyway } from '../../lib/anyway';
+import { createAnyway, updateAnyway, getTodayAnyway, getMyAnyways, Anyway } from '../../lib/anyway';
 import { getPublicFeed } from '../../lib/feed';
 import { getUserProfile } from '../../lib/user';
 import { getCardTemplate, pickCardStyle } from '../../lib/cardTemplates';
 import { auth } from '../../firebaseConfig';
 import { onAuthChanged } from '../../lib/auth';
 import CharacterAvatar from '../../components/CharacterAvatar';
+import DecoStarSvg from '../../assets/images/deco_star.svg';
+const DECO_TOP = require('../../assets/images/deco_main_top.png');
+const STAR_INPUT = require('../../assets/images/deco_input_star.png');
+const STAR_BUTTON = require('../../assets/images/deco_button_star.png');
 
 // 카드 배경 그라데이션 (Figma card-calling: 위 흰색 → 아래 연분홍 pink050)
 const CARD_GRADIENT = [Colors.white, Colors.white, Colors.pink050] as const;
 const CARD_GRADIENT_LOCS = [0, 0.5, 1] as const;
+
+// 카드 상단 장식 별 3개 (Figma main-before Star 10/11/12)
+function CardStars() {
+  return (
+    <>
+      <DecoStarSvg width={16} height={30} style={[ds.star, { left: 24, top: -6 }]} />
+      <DecoStarSvg width={24} height={42} style={[ds.star, { right: 8, top: -18 }]} />
+      <DecoStarSvg width={16} height={30} style={[ds.star, { right: 32, top: 14 }]} />
+    </>
+  );
+}
+
+const ds = StyleSheet.create({
+  decoTop: { position: 'absolute', zIndex: 0 },
+  cardDecoWrap: { marginTop: Space.s300 },
+  star: { position: 'absolute', zIndex: 5 },
+});
 
 type RecentFeed = {
   id: string;
@@ -85,6 +106,11 @@ function formatRelTime(item: Anyway): string {
 
 export default function MainScreen() {
   const { width: screenWidth } = useWindowDimensions();
+  // 상단 deco: Figma 원본 크기(853×676) 유지, 가로 화면 중앙, 세로 top -102 (node 379:1752)
+  const decoW = 853;
+  const decoH = 676;
+  const decoLeft = (screenWidth - decoW) / 2;
+  const decoTop = -140;
   const [step, setStep] = useState<Step>('home');
   const [goal, setGoal] = useState('');
   const [done, setDone] = useState('');
@@ -120,17 +146,25 @@ export default function MainScreen() {
     const uid = auth.currentUser?.uid;
     if (!uid) return;
     const { profile } = await getUserProfile(uid);
-    if (!profile) return;
-    if (profile.character) setUserChar(profile.character);
-    if (profile.nickname) setNickname(profile.nickname);
-    if (profile.createdAt) {
-      const createdDate: Date =
-        typeof profile.createdAt.toDate === 'function'
-          ? profile.createdAt.toDate()
-          : new Date(profile.createdAt);
-      const diff = Math.floor((Date.now() - createdDate.getTime()) / (1000 * 60 * 60 * 24));
-      setDaysSince(diff + 1);
-    }
+    if (profile?.character) setUserChar(profile.character);
+    if (profile?.nickname) setNickname(profile.nickname);
+
+    // 오늘 기준 "연속 기록 일수" 계산 (하루라도 끊기면 다시 1부터)
+    const { anyways } = await getMyAnyways(uid);
+    const dayIdxSet = new Set<number>();
+    anyways.forEach((a) => {
+      const d = a.createdAt?.toDate ? a.createdAt.toDate() : (a.date ? new Date(a.date) : null);
+      if (d && !isNaN(d.getTime())) {
+        dayIdxSet.add(Math.floor(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / 86400000));
+      }
+    });
+    const now = new Date();
+    let idx = Math.floor(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()) / 86400000);
+    // 오늘 기록이 아직 없으면 어제 기준으로 (진행 중인 연속 유지)
+    if (!dayIdxSet.has(idx)) idx -= 1;
+    let streak = 0;
+    while (dayIdxSet.has(idx)) { streak++; idx -= 1; }
+    setDaysSince(streak);
   }, []);
 
   // 인증 복원 타이밍 대응: 로그인 상태가 확정되면 프로필 로드
@@ -257,6 +291,7 @@ export default function MainScreen() {
       setSavedId(id);
     }
     setStep('saved');
+    loadProfile(); // 연속 기록 일수 즉시 갱신
   };
 
   // 진입 시 오늘 카드 확인 중 → 로딩 표시 (홈 화면 깜빡임 방지)
@@ -277,6 +312,7 @@ export default function MainScreen() {
       <View style={s.root}>
         <StatusBar barStyle="dark-content" />
         <LinearGradient colors={[Colors.blue200, Colors.gray050, Colors.white]} style={s.gradBg} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} />
+        <Image source={DECO_TOP} style={[ds.decoTop, { left: decoLeft, top: decoTop, width: decoW, height: decoH }]} resizeMode="stretch" pointerEvents="none" />
         <SafeAreaView style={s.safe}>
           <ScrollView contentContainerStyle={s.container}>
             <View style={s.header}>
@@ -291,6 +327,7 @@ export default function MainScreen() {
               <Text style={s.daysText}>{daysSince}days</Text>
             </View>
 
+            <View style={ds.cardDecoWrap}>
             <LinearGradient
               colors={CARD_GRADIENT}
               locations={CARD_GRADIENT_LOCS}
@@ -334,13 +371,15 @@ export default function MainScreen() {
               </View>
 
               <TouchableOpacity
-                style={[s.makeBtn, goal && done ? s.makeBtnActive : {}]}
-                disabled={!goal || !done}
+                style={[s.makeBtn, done ? s.makeBtnActive : {}]}
+                disabled={!done}
                 onPress={handleMake}
               >
-                <Text style={[s.makeBtnText, goal && done ? s.makeBtnTextActive : {}]}>제작하기</Text>
+                <Text style={[s.makeBtnText, done ? s.makeBtnTextActive : {}]}>제작하기</Text>
               </TouchableOpacity>
             </LinearGradient>
+            <CardStars />
+            </View>
 
             <View style={s.feedSection}>
               <View style={s.feedHeader}>
@@ -421,6 +460,8 @@ export default function MainScreen() {
     return (
       <View style={s.root}>
         <LinearGradient colors={[Colors.blue200, Colors.gray050, Colors.white]} style={s.gradBg} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} />
+        {/* 하단 연분홍 그라데이션 (화면 전체 배경, 바닥까지 채움) */}
+        <LinearGradient colors={['rgba(255,255,255,0)', Colors.pink050]} style={s.inputBgGrad} pointerEvents="none" />
         <SafeAreaView style={s.safe}>
           <View style={s.subContainer}>
             <View style={s.subHeader}>
@@ -439,18 +480,24 @@ export default function MainScreen() {
               </View>
             </View>
             <View style={s.interactionContainer}>
-              <TextInput
-                style={s.input}
-                placeholder="목표 입력하기"
-                placeholderTextColor={Colors.gray500}
-                value={goalTemp}
-                onChangeText={setGoalTemp}
-                keyboardType="default"
-                autoFocus
-              />
-              <TouchableOpacity style={s.primaryBtn} onPress={() => { setGoal(goalTemp); setStep('home'); }}>
-                <Text style={s.primaryBtnText}>저장하기</Text>
-              </TouchableOpacity>
+              <View style={s.inputWrap}>
+                <TextInput
+                  style={s.input}
+                  placeholder="목표 입력하기"
+                  placeholderTextColor={Colors.gray500}
+                  value={goalTemp}
+                  onChangeText={setGoalTemp}
+                  keyboardType="default"
+                  autoFocus
+                />
+                <Image source={STAR_INPUT} style={s.sparkleInput} resizeMode="contain" pointerEvents="none" />
+              </View>
+              <View style={s.btnWrap}>
+                <TouchableOpacity style={s.primaryBtn} onPress={() => { setGoal(goalTemp); setStep('home'); }}>
+                  <Text style={s.primaryBtnText}>저장하기</Text>
+                </TouchableOpacity>
+                <Image source={STAR_BUTTON} style={s.sparkleButton} resizeMode="contain" pointerEvents="none" />
+              </View>
             </View>
           </View>
         </SafeAreaView>
@@ -463,6 +510,8 @@ export default function MainScreen() {
     return (
       <View style={s.root}>
         <LinearGradient colors={[Colors.blue200, Colors.gray050, Colors.white]} style={s.gradBg} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} />
+        {/* 하단 연분홍 그라데이션 (화면 전체 배경, 바닥까지 채움) */}
+        <LinearGradient colors={['rgba(255,255,255,0)', Colors.pink050]} style={s.inputBgGrad} pointerEvents="none" />
         <SafeAreaView style={s.safe}>
           <View style={s.subContainer}>
             <View style={s.subHeader}>
@@ -481,18 +530,24 @@ export default function MainScreen() {
               </View>
             </View>
             <View style={s.interactionContainer}>
-              <TextInput
-                style={s.input}
-                placeholder="달성 항목 입력하기"
-                placeholderTextColor={Colors.gray500}
-                value={doneTemp}
-                onChangeText={setDoneTemp}
-                keyboardType="default"
-                autoFocus
-              />
-              <TouchableOpacity style={s.primaryBtn} onPress={() => { setDone(doneTemp); setStep('home'); }}>
-                <Text style={s.primaryBtnText}>저장하기</Text>
-              </TouchableOpacity>
+              <View style={s.inputWrap}>
+                <TextInput
+                  style={s.input}
+                  placeholder="달성 항목 입력하기"
+                  placeholderTextColor={Colors.gray500}
+                  value={doneTemp}
+                  onChangeText={setDoneTemp}
+                  keyboardType="default"
+                  autoFocus
+                />
+                <Image source={STAR_INPUT} style={s.sparkleInput} resizeMode="contain" pointerEvents="none" />
+              </View>
+              <View style={s.btnWrap}>
+                <TouchableOpacity style={s.primaryBtn} onPress={() => { setDone(doneTemp); setStep('home'); }}>
+                  <Text style={s.primaryBtnText}>저장하기</Text>
+                </TouchableOpacity>
+                <Image source={STAR_BUTTON} style={s.sparkleButton} resizeMode="contain" pointerEvents="none" />
+              </View>
             </View>
           </View>
         </SafeAreaView>
@@ -626,6 +681,7 @@ export default function MainScreen() {
     return (
       <View style={s.root}>
         <LinearGradient colors={[Colors.blue200, Colors.gray050, Colors.white]} style={s.gradBg} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} />
+        <Image source={DECO_TOP} style={[ds.decoTop, { left: decoLeft, top: decoTop, width: decoW, height: decoH }]} resizeMode="stretch" pointerEvents="none" />
         <SafeAreaView style={s.safe}>
           <ScrollView contentContainerStyle={s.container}>
             <View style={s.header}>
@@ -638,6 +694,7 @@ export default function MainScreen() {
               <Text style={s.dateText}>{DATE_STR}</Text>
               <Text style={s.daysText}>{daysSince}days</Text>
             </View>
+            <View style={ds.cardDecoWrap}>
             <LinearGradient
               colors={CARD_GRADIENT}
               locations={CARD_GRADIENT_LOCS}
@@ -720,6 +777,8 @@ export default function MainScreen() {
                 </TouchableWithoutFeedback>
               </Modal>
             </LinearGradient>
+            <CardStars />
+            </View>
 
             <View style={s.feedSection}>
               <View style={s.feedHeader}>
@@ -808,10 +867,10 @@ const s = StyleSheet.create({
   subHeader: { flexDirection: 'row', alignItems: 'center', paddingVertical: Space.s100 },
   titleSection: { alignItems: 'center' },
   dateText: { fontSize: FontSize.size500, fontWeight: '700', color: Colors.gray700, lineHeight: LineHeight.lh500, letterSpacing: -0.2 },
-  daysText: { fontSize: FontSize.size900, fontFamily: 'JejuSamdasooBrand-Bold', color: Colors.gray900, lineHeight: LineHeight.lh900, letterSpacing: -0.6 },
+  daysText: { fontSize: FontSize.size900, fontFamily: 'JejuSamdasooBrand-Regular', color: Colors.gray900, lineHeight: LineHeight.lh900, letterSpacing: -0.6 },
   callingCard: { backgroundColor: Colors.gray050, borderWidth: 1, borderColor: Colors.gray100, borderRadius: Radius.r300, paddingHorizontal: Space.s200, paddingTop: Space.s300, paddingBottom: Space.s200, gap: Space.s300, marginTop: Space.s300, shadowColor: Colors.black, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.05, shadowRadius: 6, elevation: 2 },
   // 홈 카드: 위 흰색 → 아래 연분홍 그라데이션 + blue200 테두리 (Figma card-calling)
-  callingCardHome: { borderWidth: 1, borderColor: Colors.blue200, borderRadius: Radius.r300, paddingHorizontal: Space.s200, paddingTop: Space.s300, paddingBottom: Space.s200, gap: Space.s300, marginTop: Space.s300, shadowColor: Colors.black, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.05, shadowRadius: 6, elevation: 2 },
+  callingCardHome: { borderWidth: 1, borderColor: Colors.blue200, borderRadius: Radius.r300, paddingHorizontal: Space.s200, paddingTop: Space.s300, paddingBottom: Space.s200, gap: Space.s300, shadowColor: Colors.black, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.05, shadowRadius: 6, elevation: 2 },
   callingCardResult: { backgroundColor: Colors.gray050, borderWidth: 1, borderColor: Colors.gray100, borderRadius: Radius.r300, paddingHorizontal: Space.s200, paddingTop: Space.s300, paddingBottom: Space.s200, gap: Space.s300, marginTop: Space.s300, shadowColor: Colors.black, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.05, shadowRadius: 6, elevation: 2 },
   avatarWrap: { alignItems: 'center' },
   avatarCircle: { width: 80, height: 80, borderRadius: 40, backgroundColor: Colors.gray100, borderWidth: 1.5, borderColor: Colors.pink400 },
@@ -850,7 +909,13 @@ const s = StyleSheet.create({
   callTitle: { fontSize: FontSize.size600, fontWeight: '700', color: Colors.gray900, lineHeight: LineHeight.lh600, letterSpacing: -0.4 },
   callTitleSm: { fontSize: FontSize.size400, fontWeight: '600', color: Colors.gray900, lineHeight: LineHeight.lh400, letterSpacing: -0.2 },
   interactionContainer: { gap: Space.s300, paddingTop: Space.s500 },
-  input: { backgroundColor: Colors.gray050, borderWidth: 1, borderColor: Colors.opacityBlack200, borderRadius: Radius.r100, padding: Space.s200, fontSize: FontSize.size300, color: Colors.gray900, lineHeight: LineHeight.lh300, letterSpacing: -0.6 },
+  // 입력 화면 하단 연분홍 그라데이션 (배경) + 반짝이
+  inputBgGrad: { ...StyleSheet.absoluteFillObject },
+  inputWrap: { width: '100%', position: 'relative' },
+  btnWrap: { width: '100%', position: 'relative' },
+  sparkleInput: { position: 'absolute', right: -16, top: -45, width: 57, height: 78, zIndex: 1 },
+  sparkleButton: { position: 'absolute', left: -24, bottom: -40, width: 57, height: 78, zIndex: 1 },
+  input: { backgroundColor: Colors.white, borderWidth: 1, borderColor: Colors.opacityBlack200, borderRadius: Radius.r100, padding: Space.s200, fontSize: FontSize.size300, color: Colors.gray900, lineHeight: LineHeight.lh300, letterSpacing: -0.6 },
   primaryBtn: { backgroundColor: Colors.blue500, borderRadius: Radius.r100, paddingHorizontal: Space.s300, paddingVertical: Space.s150, alignItems: 'center' },
   primaryBtnText: { fontSize: FontSize.size400, fontWeight: '600', color: Colors.white, lineHeight: LineHeight.lh400, letterSpacing: -0.2 },
   bottomBtnWrap: { paddingHorizontal: Space.s200, paddingBottom: Space.s500 },

@@ -4,6 +4,7 @@ import { useFocusEffect } from 'expo-router';
 import {
   View, Text, StyleSheet, TouchableOpacity,
   ScrollView, FlatList, StatusBar, Image, Alert,
+  Modal, TouchableWithoutFeedback,
   useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -32,6 +33,7 @@ import * as MediaLibrary from 'expo-media-library';
 import * as Sharing from 'expo-sharing';
 import { onAuthChanged } from '../../lib/auth';
 import CharacterAvatar from '../../components/CharacterAvatar';
+import DecoBottomStar from '../../assets/images/deco_stats_bottom.svg';
 
 // ── 캘린더 데이터 ──
 type CellType = 'num' | 'blank' | 'empty';
@@ -153,7 +155,8 @@ const sliderStyle = StyleSheet.create({
   track: {
     width: 274,
     height: 76,
-    backgroundColor: Colors.gray050,
+    marginTop: Space.s400,
+    backgroundColor: Colors.white,
     borderWidth: 1,
     borderColor: Colors.gray100,
     borderRadius: Radius.r999,
@@ -182,24 +185,49 @@ const sliderStyle = StyleSheet.create({
 });
 
 export default function StatsScreen() {
-  const { width: screenWidth } = useWindowDimensions();
+  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const cellSize = screenWidth / 9;
+
+  // 캘린더 스탬프 클릭 시 뜨는 카드 팝업
+  const [selectedCard, setSelectedCard] = useState<Anyway | null>(null);
+  const popCardW = Math.min(screenWidth * 0.72, (screenHeight - 220) * (286 / 476));
+  const popCardH = popCardW * (476 / 286);
+  const popSc = popCardW / 286;
 
   const flatRef = useRef<FlatList>(null);
   const recapShotRef = useRef<View>(null);  // 3페이지 본문 캡처용
+  const [capturing, setCapturing] = useState(false); // 캡처 중에만 흰 배경
   const [isSliding, setIsSliding] = useState(false);
   const [mode, setMode] = useState<'calendar' | 'list'>('calendar');
   const [showRecap, setShowRecap] = useState(false);
   const [currentPage, setCurrentPage] = useState(0);
 
   const today = new Date();
-  const monthStr = MONTH_NAMES[today.getMonth()];
   const dateStr = `${today.getFullYear()}년 ${today.getMonth()+1}월 ${today.getDate()}일`;
 
-  // 카드를 만든 날(스탬프) - 이번 달 본인 작성 ANYWAY 기준
+  // 보고 있는 달 (기본: 이번 달)
+  const [viewDate, setViewDate] = useState(() => {
+    const n = new Date();
+    return { y: n.getFullYear(), m: n.getMonth() };
+  });
+  const monthStr = MONTH_NAMES[viewDate.m];
+  const daysInViewMonth = new Date(viewDate.y, viewDate.m + 1, 0).getDate();
+  const [listPage, setListPage] = useState(0);
+
+  // 월 선택 드롭다운(피커)
+  const [showMonthPicker, setShowMonthPicker] = useState(false);
+  const [pickerYear, setPickerYear] = useState(viewDate.y);
+  const openMonthPicker = () => { setPickerYear(viewDate.y); setShowMonthPicker(true); };
+
+  // 전체 카드 + 기록이 있는 달 집합 (월 이동 접근 제어용)
+  const [allCards, setAllCards] = useState<Anyway[]>([]);
+  const [recordedMonths, setRecordedMonths] = useState<Set<string>>(new Set());
+
+  // 카드를 만든 날(스탬프) - 보고 있는 달 기준
   const [stampDays, setStampDays] = useState<number[]>([]);
   const [recapStreak, setRecapStreak] = useState(0);       // 지난달(리캡 대상) 최장 연속
   const [recapPrevStreak, setRecapPrevStreak] = useState(0); // 지지난달 최장 연속
+  const [curMonthCards, setCurMonthCards] = useState<Anyway[]>([]); // 이번 달 카드 (캘린더 클릭용)
   const [recapCards, setRecapCards] = useState<Anyway[]>([]); // 지난달 내가 만든 카드들
   const [selectedRecap, setSelectedRecap] = useState<Anyway | null>(null);
   const [totalCount, setTotalCount] = useState(0);       // 누적 기록 횟수
@@ -231,7 +259,10 @@ export default function StatsScreen() {
     const daysOf = (y: number, m: number) =>
       dates.filter((d) => d.getFullYear() === y && d.getMonth() === m).map((d) => d.getDate());
 
-    setStampDays([...new Set(daysOf(curY, curM))]);                       // 캘린더: 이번 달
+    // 전체 카드 + 기록이 있는 달 집합 저장 (보는 달 캘린더·월 이동 제어는 별도 effect에서 파생)
+    setAllCards(anyways);
+    setRecordedMonths(new Set(dates.map((d) => `${d.getFullYear()}-${d.getMonth()}`)));
+
     setRecapStreak(computeStreak(daysOf(recap.getFullYear(), recap.getMonth())));
     setRecapPrevStreak(computeStreak(daysOf(recapPrev.getFullYear(), recapPrev.getMonth())));
 
@@ -274,6 +305,62 @@ export default function StatsScreen() {
     useCallback(() => { loadStamps(); }, [loadStamps])
   );
 
+  // 보고 있는 달의 스탬프/카드 파생 (allCards 또는 viewDate 변경 시)
+  useEffect(() => {
+    const inView = allCards.filter((a) => {
+      const d = anywayDate(a);
+      return !!d && d.getFullYear() === viewDate.y && d.getMonth() === viewDate.m;
+    });
+    setCurMonthCards(inView);
+    setStampDays([...new Set(inView.map((a) => anywayDate(a)!.getDate()))]);
+    setListPage(0);
+  }, [allCards, viewDate]);
+
+  // 월 이동: 기록 유무와 관계없이 어느 달이든 자유롭게 이동 가능
+  const goPrev = () => { const d = new Date(viewDate.y, viewDate.m - 1, 1); setViewDate({ y: d.getFullYear(), m: d.getMonth() }); };
+  const goNext = () => { const d = new Date(viewDate.y, viewDate.m + 1, 1); setViewDate({ y: d.getFullYear(), m: d.getMonth() }); };
+
+  // 지난 달과 비교 팝업 (오늘 기준 이번달 vs 지난달, viewDate와 무관)
+  const [showMonthCompare, setShowMonthCompare] = useState(false);
+  const cmpAllDates = allCards
+    .map((a) => anywayDate(a))
+    .filter((d): d is Date => !!d);
+  const cmpDays = (y: number, m: number) =>
+    [...new Set(cmpAllDates.filter((d) => d.getFullYear() === y && d.getMonth() === m).map((d) => d.getDate()))];
+  const cmpThisDays = cmpDays(today.getFullYear(), today.getMonth());
+  const cmpLastRef = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+  const cmpLastDays = cmpDays(cmpLastRef.getFullYear(), cmpLastRef.getMonth());
+  const cmpThisCount = cmpThisDays.length;
+  const cmpLastCount = cmpLastDays.length;
+  const cmpThisStreak = computeStreak(cmpThisDays);
+  const cmpLastStreak = computeStreak(cmpLastDays);
+  const cmpThisMonth = today.getMonth() + 1;
+  const cmpLastMonth = cmpLastRef.getMonth() + 1;
+  const cmpCountDiff = cmpThisCount - cmpLastCount;
+
+  // 리스트형: 보는 달의 날짜별 행 (최신 날짜가 위), 4개씩 페이지네이션
+  const isViewCurMonth = viewDate.y === today.getFullYear() && viewDate.m === today.getMonth();
+  const listLastDay = isViewCurMonth ? today.getDate() : daysInViewMonth;
+  const listRows = (() => {
+    const rows: { day: number; active: boolean; title: string; goal: string; date: string }[] = [];
+    for (let d = listLastDay; d >= 1; d--) {
+      const card = curMonthCards.find((c) => anywayDate(c)?.getDate() === d) || null;
+      const dateStr2 = `${viewDate.y}-${String(viewDate.m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      rows.push({
+        day: d,
+        active: !!card,
+        title: card ? card.anywayText : '아무 일 없었어',
+        goal: card ? card.goal : '아무 일 없었어',
+        date: dateStr2,
+      });
+    }
+    return rows;
+  })();
+  const LIST_PAGE_SIZE = 4;
+  const listTotalPages = Math.max(1, Math.ceil(listRows.length / LIST_PAGE_SIZE));
+  const listPageSafe = Math.min(listPage, listTotalPages - 1);
+  const listPageRows = listRows.slice(listPageSafe * LIST_PAGE_SIZE, listPageSafe * LIST_PAGE_SIZE + LIST_PAGE_SIZE);
+
   // 이번 달 총 카드 수
   const monthCount = stampDays.length;
   // 이번 달 최장 연속 작성일 수
@@ -307,11 +394,22 @@ export default function StatsScreen() {
     Alert.alert('완료', '지난달 샘플 카드 3개를 만들었어요.');
   };
 
+  // 캡처: 잠깐 흰 배경을 깔고 본문을 PNG로 캡처
+  const captureWithBg = async () => {
+    setCapturing(true);
+    await new Promise((res) => setTimeout(res, 60));
+    try {
+      return await captureRef(recapShotRef, { format: 'png', quality: 1 });
+    } finally {
+      setCapturing(false);
+    }
+  };
+
   // 다운로드: 3페이지 본문만 캡처해 갤러리에 저장
   const handleDownloadRecap = async () => {
     try {
       if (!recapShotRef.current) return;
-      const uri = await captureRef(recapShotRef, { format: 'png', quality: 1 });
+      const uri = await captureWithBg();
       const perm = await MediaLibrary.requestPermissionsAsync();
       if (!perm.granted) { Alert.alert('권한 필요', '사진 저장 권한을 허용해주세요.'); return; }
       await MediaLibrary.saveToLibraryAsync(uri);
@@ -328,7 +426,7 @@ export default function StatsScreen() {
     setSharing(true);
     try {
       const available = await Sharing.isAvailableAsync();
-      const uri = await captureRef(recapShotRef, { format: 'png', quality: 1 });
+      const uri = await captureWithBg();
       if (!available) { Alert.alert('알림', '이 기기에서는 공유를 사용할 수 없어요.'); return; }
       await Sharing.shareAsync(uri, { mimeType: 'image/png', dialogTitle: '리캡 공유' });
     } catch (e) {
@@ -359,7 +457,7 @@ export default function StatsScreen() {
   if (showRecap) {
     return (
       <View style={s.root}>
-        <LinearGradient colors={[Colors.blue200, Colors.gray050, Colors.white]} style={s.gradBg} start={{x:0,y:0}} end={{x:0,y:1}} />
+        <LinearGradient colors={[Colors.blue200, Colors.pink050, Colors.white]} locations={[0, 0.22, 0.5]} style={StyleSheet.absoluteFill} start={{x:0,y:0}} end={{x:0,y:1}} />
         <SafeAreaView style={s.safe}>
           {/* 인디케이터 - absolute로 피그마 위치 그대로 */}
           <View style={s.indicatorRow} pointerEvents="none">
@@ -478,7 +576,9 @@ export default function StatsScreen() {
               if (item === 'final') return (
                 <ScrollView style={{ width: screenWidth }} contentContainerStyle={s.slideContainer}>
                   {/* 캡처 대상 본문 (헤더/아이콘/버튼 제외) */}
-                  <View ref={recapShotRef} collapsable={false} style={s.recapShot}>
+                  <View ref={recapShotRef} collapsable={false} style={[s.recapShot, capturing && s.recapShotCapture]}>
+                  {/* AI 월간 리캡 배경 꾸밈 (별 패턴 버스트) */}
+                  <Image source={require('../../assets/images/deco_recap3.png')} style={s.decoRecap3} resizeMode="contain" pointerEvents="none" />
                   {/* 아바타 + 제목 섹션: gap 20 */}
                   <View style={s.finalTopSection}>
                     {/* 아바타: 사용자 캐릭터 */}
@@ -526,7 +626,7 @@ export default function StatsScreen() {
                     </View>
                   </View>
                   </View>
-                  {/* 하단: 아이콘(gap 20) + 확인 버튼 */}
+                  {/* 하단: 아이콘 + (아래로 내려간) 확인 버튼 */}
                   <View style={s.finalFooter}>
                     <View style={s.finalIconsRow}>
                       <TouchableOpacity onPress={handleDownloadRecap}>
@@ -559,6 +659,8 @@ export default function StatsScreen() {
       <LinearGradient colors={[Colors.blue200, Colors.gray050, Colors.white]} style={s.gradBg} start={{x:0,y:0}} end={{x:0,y:1}} />
       <SafeAreaView style={s.safe}>
         <ScrollView contentContainerStyle={s.container}>
+          {/* 하단 별 데코 (맨 뒤 레이어) */}
+          <DecoBottomStar width={200} height={160} style={s.decoBottom} pointerEvents="none" />
           {/* 헤더 */}
           <View style={s.header}>
             {/* 임시: 개발용 (지난달 샘플 카드 생성) */}
@@ -572,9 +674,16 @@ export default function StatsScreen() {
 
           {/* 월 네비게이션 */}
           <View style={s.monthRow}>
-            <TouchableOpacity><Text style={s.monthArrow}>‹</Text></TouchableOpacity>
-            <Text style={s.monthText}>{monthStr}</Text>
-            <TouchableOpacity><Text style={s.monthArrow}>›</Text></TouchableOpacity>
+            <Image source={require('../../assets/images/deco_stats_month.png')} style={s.decoMonth} resizeMode="contain" pointerEvents="none" />
+            <TouchableOpacity onPress={goPrev} style={s.monthArrowBtn} hitSlop={8}>
+              <ArrowForwardIosIcon width={28} height={28} color={Colors.gray400} style={{ transform: [{ scaleX: -1 }] }} />
+            </TouchableOpacity>
+            <TouchableOpacity onPress={openMonthPicker} activeOpacity={0.7}>
+              <Text style={s.monthText}>{monthStr}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={goNext} style={s.monthArrowBtn} hitSlop={8}>
+              <ArrowForwardIosIcon width={28} height={28} color={Colors.gray400} />
+            </TouchableOpacity>
           </View>
 
           {/* 날짜 + 토글: 캘린더 모드에서만 표시 */}
@@ -600,14 +709,25 @@ export default function StatsScreen() {
                     if (cell.type === 'empty') {
                       return <View key={cellIdx} style={[s.cell, s.cellEmpty, cellStyle]} />;
                     }
+                    // 보는 달의 일수를 넘는 날짜(예: 30일 달의 31)는 빈 칸 처리
+                    if (cell.day! > daysInViewMonth) {
+                      return <View key={cellIdx} style={[s.cell, s.cellEmpty, cellStyle]} />;
+                    }
                     const hasStamp = stampDays.includes(cell.day!);
                     return (
                       <View key={cellIdx} style={[s.cell, s.cellNum, cellStyle]}>
                         {hasStamp ? (
-                          <View style={[s.stampWrap, { width: cellSize, height: cellSize }]}>
+                          <TouchableOpacity
+                            activeOpacity={0.7}
+                            onPress={() => {
+                              const card = curMonthCards.find((a) => anywayDate(a)?.getDate() === cell.day);
+                              if (card) setSelectedCard(card);
+                            }}
+                            style={[s.stampWrap, { width: cellSize, height: cellSize }]}
+                          >
                             <Star12Icon width={cellSize} height={cellSize} />
                             <Text style={s.stampNum}>{cell.day}</Text>
-                          </View>
+                          </TouchableOpacity>
                         ) : (
                           <Text style={s.numText}>{cell.day}</Text>
                         )}
@@ -636,39 +756,34 @@ export default function StatsScreen() {
                 </TouchableOpacity>
               </View>
 
-              {/* 리스트 아이템 */}
-              {[
-                { title: '일이삼사오육칠팔구십일이삼사오육칠팔구십일이삼사오', goal: '일이삼사오육칠팔구십일이삼사오육칠', date: '2026-06-13', active: true },
-                { title: '아무 일 없었어', goal: '아무 일 없었어', date: '2026-06-12', active: false },
-                { title: '아무 일 없었어', goal: '아무 일 없었어', date: '2026-06-11', active: false },
-                { title: '일이삼사오육칠팔구십일이삼', goal: '일이삼사오육칠팔구', date: '2026-06-10', active: true },
-              ].map((item, i) => (
-                <View key={i} style={[s.listCard, item.active ? s.listCardActive : s.listCardInactive]}>
-                  <View style={s.listAvatar} />
+              {/* 리스트 아이템 (보는 달의 날짜별, 최신순) */}
+              {listPageRows.map((row) => (
+                <View key={row.day} style={[s.listCard, row.active ? s.listCardActive : s.listCardInactive]}>
+                  <CharacterAvatar character={userChar} size={48} />
                   <View style={{ flex: 1, minWidth: 0 }}>
                     <Text
-                      style={[s.listCardTitle, item.active && s.listCardTitleActive]}
-                      numberOfLines={item.active ? 2 : 1}
+                      style={[s.listCardTitle, row.active && s.listCardTitleActive]}
+                      numberOfLines={row.active ? 2 : 1}
                     >
-                      {item.title}
+                      {row.title}
                     </Text>
                     <View style={s.listCardMeta}>
-                      {item.active
+                      {row.active
                         ? <CallIcon width={16} height={16} color={Colors.gray900} />
                         : <CallEndIcon width={16} height={16} color={Colors.pink400} />
                       }
-                      <Text style={s.listCardGoal} numberOfLines={1}>{item.goal}</Text>
+                      <Text style={s.listCardGoal} numberOfLines={1}>{row.goal}</Text>
                     </View>
                   </View>
-                  <Text style={s.listCardDate}>{item.date}</Text>
+                  <Text style={s.listCardDate}>{row.date}</Text>
                 </View>
               ))}
 
               {/* 페이지네이션 */}
               <View style={s.pagination}>
-                {[1,2,3,4,5,6,7,8].map(p => (
-                  <TouchableOpacity key={p} style={[s.pageBtn, p === 1 && s.pageBtnActive]}>
-                    <Text style={[s.pageBtnText, p === 1 && s.pageBtnTextActive]}>{p}</Text>
+                {Array.from({ length: listTotalPages }, (_, p) => (
+                  <TouchableOpacity key={p} onPress={() => setListPage(p)} style={[s.pageBtn, p === listPageSafe && s.pageBtnActive]}>
+                    <Text style={[s.pageBtnText, p === listPageSafe && s.pageBtnTextActive]}>{p + 1}</Text>
                   </TouchableOpacity>
                 ))}
               </View>
@@ -688,7 +803,7 @@ export default function StatsScreen() {
               </View>
             ))}
           </View>
-          <TouchableOpacity style={s.compareLink}>
+          <TouchableOpacity style={s.compareLink} onPress={() => setShowMonthCompare(true)}>
             <Text style={s.compareLinkText}>지난 달과 비교하기</Text>
             <ArrowForwardIosIcon width={16} height={16} color={Colors.gray900} />
           </TouchableOpacity>
@@ -706,6 +821,127 @@ export default function StatsScreen() {
             <ArrowForwardIosIcon width={28} height={28} color={Colors.gray900} />
           </TouchableOpacity>
         </ScrollView>
+
+        {/* 지난 달과 비교 */}
+        <Modal
+          visible={showMonthCompare}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowMonthCompare(false)}
+        >
+          <TouchableWithoutFeedback onPress={() => setShowMonthCompare(false)}>
+            <View style={s.pickerOverlay}>
+              <TouchableWithoutFeedback onPress={() => {}}>
+                <View style={s.cmpCard}>
+                  <TouchableOpacity style={s.cmpClose} onPress={() => setShowMonthCompare(false)} hitSlop={8}>
+                    <Text style={s.cmpCloseText}>✕</Text>
+                  </TouchableOpacity>
+                  <Text style={s.cmpTitle}>지난 달과 비교</Text>
+
+                  <Text style={s.cmpMetricLabel}>기록 횟수</Text>
+                  <View style={s.compareRow}>
+                    <View style={s.compareItem}>
+                      <Text style={s.compareLabel}>{cmpLastMonth}월</Text>
+                      <Text style={s.compareValuePrev}>{cmpLastCount}회</Text>
+                    </View>
+                    <ArrowForwardIosIcon width={12} height={22} color={Colors.black} />
+                    <View style={s.compareItem}>
+                      <Text style={s.compareLabel}>{cmpThisMonth}월</Text>
+                      <Text style={s.compareValueCurr}>{cmpThisCount}회</Text>
+                    </View>
+                  </View>
+
+                  <Text style={s.cmpMetricLabel}>연속 기록 횟수</Text>
+                  <View style={s.compareRow}>
+                    <View style={s.compareItem}>
+                      <Text style={s.compareLabel}>{cmpLastMonth}월</Text>
+                      <Text style={s.compareValuePrev}>{cmpLastStreak}회</Text>
+                    </View>
+                    <ArrowForwardIosIcon width={12} height={22} color={Colors.black} />
+                    <View style={s.compareItem}>
+                      <Text style={s.compareLabel}>{cmpThisMonth}월</Text>
+                      <Text style={s.compareValueCurr}>{cmpThisStreak}회</Text>
+                    </View>
+                  </View>
+
+                </View>
+              </TouchableWithoutFeedback>
+            </View>
+          </TouchableWithoutFeedback>
+        </Modal>
+
+        {/* 월 선택 드롭다운 */}
+        <Modal
+          visible={showMonthPicker}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowMonthPicker(false)}
+        >
+          <TouchableWithoutFeedback onPress={() => setShowMonthPicker(false)}>
+            <View style={s.pickerOverlay}>
+              <TouchableWithoutFeedback onPress={() => {}}>
+                <View style={s.pickerCard}>
+                  {/* 연도 조정 */}
+                  <View style={s.pickerYearRow}>
+                    <TouchableOpacity onPress={() => setPickerYear((y) => y - 1)} style={s.monthArrowBtn} hitSlop={8}>
+                      <ArrowForwardIosIcon width={24} height={24} color={Colors.gray500} style={{ transform: [{ scaleX: -1 }] }} />
+                    </TouchableOpacity>
+                    <Text style={s.pickerYearText}>{pickerYear}년</Text>
+                    <TouchableOpacity onPress={() => setPickerYear((y) => y + 1)} style={s.monthArrowBtn} hitSlop={8}>
+                      <ArrowForwardIosIcon width={24} height={24} color={Colors.gray500} />
+                    </TouchableOpacity>
+                  </View>
+                  {/* 월 선택 */}
+                  <View style={s.pickerGrid}>
+                    {Array.from({ length: 12 }, (_, m) => {
+                      const sel = pickerYear === viewDate.y && m === viewDate.m;
+                      return (
+                        <TouchableOpacity
+                          key={m}
+                          style={[s.pickerMonth, sel && s.pickerMonthSel]}
+                          onPress={() => { setViewDate({ y: pickerYear, m }); setShowMonthPicker(false); }}
+                        >
+                          <Text style={[s.pickerMonthText, sel && s.pickerMonthTextSel]}>{m + 1}월</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
+              </TouchableWithoutFeedback>
+            </View>
+          </TouchableWithoutFeedback>
+        </Modal>
+
+        {/* 캘린더 스탬프 → 그날 카드 팝업 */}
+        <Modal
+          visible={selectedCard !== null}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setSelectedCard(null)}
+        >
+          <TouchableWithoutFeedback onPress={() => setSelectedCard(null)}>
+            <View style={s.modalOverlay}>
+              <TouchableOpacity style={s.modalClose} onPress={() => setSelectedCard(null)}>
+                <Text style={s.modalCloseText}>✕</Text>
+              </TouchableOpacity>
+              <TouchableWithoutFeedback onPress={() => {}}>
+                <View style={{ width: popCardW, height: popCardH }}>
+                  {selectedCard && (
+                    <>
+                      <Image source={getCardTemplate(selectedCard.cardStyle).image} style={{ width: popCardW, height: popCardH }} resizeMode="stretch" />
+                      {getCardTemplate(selectedCard.cardStyle).renderOverlay({
+                        yymmdd: yymmdd(anywayDate(selectedCard) ?? new Date()),
+                        goal: selectedCard.goal,
+                        done: selectedCard.done,
+                        anyway: selectedCard.anywayText,
+                      }, popSc)}
+                    </>
+                  )}
+                </View>
+              </TouchableWithoutFeedback>
+            </View>
+          </TouchableWithoutFeedback>
+        </Modal>
       </SafeAreaView>
     </View>
   );
@@ -719,9 +955,31 @@ const s = StyleSheet.create({
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: Space.s100 },
   seedBtn: { backgroundColor: Colors.blue100, borderRadius: Radius.r100, paddingHorizontal: Space.s150, paddingVertical: Space.s075 },
   seedBtnText: { fontSize: FontSize.size100, color: Colors.blue700, letterSpacing: -0.2 },
+  // 지난 달과 비교 카드
+  cmpCard: { width: 320, backgroundColor: Colors.white, borderRadius: Radius.r300, padding: Space.s300, gap: Space.s200, alignItems: 'center' },
+  cmpTitle: { fontSize: FontSize.size600, fontWeight: '700', color: Colors.gray900, letterSpacing: -0.4, marginTop: Space.s200, marginBottom: Space.s100 },
+  cmpMetricLabel: { fontSize: FontSize.size200, color: Colors.gray500, letterSpacing: -0.4, alignSelf: 'center' },
+  cmpMsgPlain: { alignItems: 'center', gap: Space.s050, marginTop: Space.s100 },
+  cmpClose: { position: 'absolute', top: Space.s150, right: Space.s200, padding: Space.s050, zIndex: 1 },
+  cmpCloseText: { fontSize: 18, color: Colors.gray500, fontWeight: '600' },
+  // 월 선택 드롭다운
+  pickerOverlay: { flex: 1, backgroundColor: 'rgba(96,98,109,0.55)', alignItems: 'center', justifyContent: 'center' },
+  pickerCard: { width: 300, backgroundColor: Colors.white, borderRadius: Radius.r300, padding: Space.s300, gap: Space.s300 },
+  pickerYearRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Space.s300 },
+  pickerYearText: { fontSize: FontSize.size500, fontWeight: '700', color: Colors.gray900, letterSpacing: -0.4, minWidth: 90, textAlign: 'center' },
+  pickerGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: Space.s150 },
+  pickerMonth: { width: '23%', paddingVertical: Space.s150, borderRadius: Radius.r100, alignItems: 'center', backgroundColor: Colors.gray050 },
+  pickerMonthSel: { backgroundColor: Colors.blue400 },
+  pickerMonthText: { fontSize: FontSize.size300, color: Colors.gray900, letterSpacing: -0.4 },
+  pickerMonthTextSel: { color: Colors.white, fontWeight: '700' },
+  // 카드 팝업 (다른 팝업과 동일)
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(96,98,109,0.75)', alignItems: 'center', justifyContent: 'center' },
+  modalClose: { position: 'absolute', top: 60, right: Space.s200, padding: Space.s100, zIndex: 10 },
+  modalCloseText: { fontSize: 22, color: Colors.white, fontWeight: '600' },
   monthRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Space.s100 },
-  monthArrow: { fontSize: 24, color: Colors.gray900, paddingHorizontal: Space.s100 },
-  monthText: { fontSize: FontSize.size900, fontWeight: '700', color: Colors.black, lineHeight: LineHeight.lh900, letterSpacing: -0.6, textAlign: 'center' },
+  decoMonth: { position: 'absolute', top: -40, left: '50%', marginLeft: -90, width: 180, height: 137, zIndex: 0 },
+  monthArrowBtn: { padding: Space.s100, alignItems: 'center', justifyContent: 'center' },
+  monthText: { fontSize: FontSize.size900, fontFamily: 'JejuSamdasooBrand-Regular', color: Colors.black, lineHeight: LineHeight.lh900, letterSpacing: -0.6, textAlign: 'center' },
   dateToggleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingBottom: Space.s150 },
   dateLabel: { fontSize: FontSize.size400, fontWeight: '700', color: Colors.gray900, lineHeight: 24.3, letterSpacing: -0.36 },
   // 캘린더
@@ -761,8 +1019,9 @@ const s = StyleSheet.create({
   statBox: { flex: 1, backgroundColor: Colors.white, borderWidth: 1, borderColor: Colors.blue100, borderRadius: Radius.r300, padding: Space.s200, gap: Space.s100 },
   statLabel: { fontSize: FontSize.size100, color: Colors.gray900, lineHeight: LineHeight.lh100, letterSpacing: -0.2, textAlign: 'center' },
   statValue: { fontSize: FontSize.size600, fontWeight: '700', lineHeight: 33.6, letterSpacing: -0.48, textAlign: 'center' },
-  compareLink: { flexDirection: 'row', alignItems: 'center', gap: Space.s100, justifyContent: 'flex-end', paddingVertical: Space.s100, marginBottom: Space.s200 },
+  compareLink: { flexDirection: 'row', alignItems: 'center', gap: Space.s100, justifyContent: 'flex-end', paddingVertical: Space.s100, marginBottom: Space.s500 },
   compareLinkText: { fontSize: FontSize.size200, fontWeight: '700', color: Colors.gray900, lineHeight: 21, letterSpacing: -0.28 },
+  decoBottom: { position: 'absolute', right: -56, bottom: 150, width: 200, height: 160, zIndex: -1 },
   recapBtn: { backgroundColor: '#F1F7FF', borderWidth: 1, borderColor: Colors.blue100, borderRadius: Radius.r200, flexDirection: 'row', alignItems: 'center', gap: Space.s200, padding: Space.s200 },
   recapAvatarWrap: { borderWidth: 1, borderColor: Colors.pink400, borderRadius: 1332, overflow: 'hidden', width: 64, height: 64 },
   recapAvatar: { width: 64, height: 64, backgroundColor: Colors.gray100 },
@@ -774,9 +1033,9 @@ const s = StyleSheet.create({
   closeBtn: { position: 'absolute', top: 108, right: Space.s200, zIndex: 20 },
   closeBtnText: { fontSize: 22, color: Colors.gray500 },
   indicatorRow: { position: 'absolute', top: 86, left: Space.s200, right: Space.s200, flexDirection: 'row', gap: Space.s100, zIndex: 20, alignItems: 'center' },
-  indicatorBar: { flex: 1, height: 4, borderRadius: 2, backgroundColor: Colors.gray200 },
+  indicatorBar: { flex: 1, height: 4, borderRadius: 2, backgroundColor: Colors.white },
   indicatorBarActive: { backgroundColor: Colors.blue500 },
-  slideContainer: { padding: Space.s200, paddingTop: 120, paddingBottom: 60, alignItems: 'center' },
+  slideContainer: { padding: Space.s200, paddingTop: 120, paddingBottom: 60, alignItems: 'center', flexGrow: 1 },
   // 리캡 1페이지
   comparePage: { alignItems: 'center', paddingHorizontal: Space.s200, paddingBottom: 40, paddingTop: 120 },
   compareAvatar: { width: 217, height: 217, alignItems: 'center', justifyContent: 'center', marginBottom: Space.s200 },
@@ -786,7 +1045,7 @@ const s = StyleSheet.create({
   compareLabel: { fontSize: FontSize.size100, color: Colors.black, lineHeight: 16.8, letterSpacing: -0.24, textAlign: 'center' },
   compareValuePrev: { fontSize: FontSize.size600, fontWeight: '700', color: '#5FA6FF', lineHeight: 32.4, letterSpacing: -0.48, textAlign: 'center' },
   compareValueCurr: { fontSize: FontSize.size600, fontWeight: '700', color: '#005DE2', lineHeight: 32.4, letterSpacing: -0.48, textAlign: 'center' },
-  compareMsgBubble: { backgroundColor: Colors.gray050, borderWidth: 1, borderColor: Colors.blue100, borderRadius: Radius.r300, paddingVertical: Space.s150, paddingHorizontal: Space.s250, alignItems: 'center', marginBottom: Space.s400, width: '100%' },
+  compareMsgBubble: { backgroundColor: Colors.white, borderWidth: 1, borderColor: Colors.blue100, borderRadius: Radius.r300, paddingVertical: Space.s150, paddingHorizontal: Space.s250, alignItems: 'center', marginBottom: Space.s400, width: '100%' },
   compareMsgBold: { fontSize: FontSize.size300, fontWeight: '700', color: Colors.black, lineHeight: 24, letterSpacing: -0.2, textAlign: 'center' },
   compareMsgHighlight: { color: '#005DE2' },
   compareMsgSub: { fontSize: FontSize.size050, color: Colors.black, lineHeight: 14, letterSpacing: -0.2, textAlign: 'center' },
@@ -797,7 +1056,7 @@ const s = StyleSheet.create({
   // 리캡 2페이지
   anywayHighlightCard: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    backgroundColor: Colors.gray050, borderWidth: 1, borderColor: Colors.blue100,
+    backgroundColor: Colors.white, borderWidth: 1, borderColor: Colors.blue100,
     borderRadius: Radius.r200, padding: Space.s150, width: '100%', marginBottom: Space.s300,
   },
   anywayHighlightLeft: { flexDirection: 'row', alignItems: 'center', gap: Space.s200, flex: 1 },
@@ -809,13 +1068,14 @@ const s = StyleSheet.create({
   anywayHighlightDate: { fontSize: FontSize.size100, color: Colors.black, lineHeight: LineHeight.lh100, flexShrink: 0 },
   anywayImageCard: {
     width: '100%', height: 675,
+    backgroundColor: Colors.gray050,
     borderWidth: 1, borderColor: Colors.opacityBlack200,
     borderRadius: Radius.r100, marginBottom: Space.s500,
     padding: Space.s150,
   },
   collectionTitle: { fontSize: FontSize.size300, fontWeight: '700', color: Colors.black, lineHeight: 24.8, letterSpacing: -0.32, marginBottom: Space.s250, alignSelf: 'flex-start' },
   cardGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: Space.s100, width: '100%' },
-  collectionCard: { width: 118, height: 149, backgroundColor: Colors.gray100, borderRadius: 15, overflow: 'hidden', position: 'relative', alignItems: 'center', justifyContent: 'center' },
+  collectionCard: { width: 118, height: 149, backgroundColor: Colors.gray050, borderRadius: 15, overflow: 'hidden', position: 'relative', alignItems: 'center', justifyContent: 'center' },
   collectionCardSelected: { borderWidth: 2, borderColor: Colors.blue400 },
   collectionCardLabel: { fontSize: FontSize.size100, color: Colors.gray400, lineHeight: 16.8, letterSpacing: -0.24 },
   recapCardPreviewWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
@@ -824,7 +1084,9 @@ const s = StyleSheet.create({
   dateBadge: { position: 'absolute', bottom: 8, left: 8, width: 33, height: 33, borderRadius: 16.5, backgroundColor: Colors.gray050, borderWidth: 1, borderColor: Colors.blue100, alignItems: 'center', justifyContent: 'center' },
   dateBadgeText: { fontSize: FontSize.size050, fontWeight: '700', color: '#005DE2', lineHeight: 14, letterSpacing: -0.2 },
   // 리캡 3페이지
-  recapShot: { width: '100%', alignItems: 'center', backgroundColor: Colors.white, paddingVertical: Space.s300, borderRadius: Radius.r300 },
+  recapShot: { width: '100%', alignItems: 'center', paddingVertical: Space.s300 },
+  recapShotCapture: { backgroundColor: Colors.white, borderRadius: Radius.r300 },
+  decoRecap3: { position: 'absolute', top: 24, left: '50%', marginLeft: -160, width: 380, height: 320, transform: [{ rotate: '19deg' }] },
   finalTopSection: { alignItems: 'center', gap: Space.s250, marginBottom: Space.s400 },
   finalAvatar: { width: 80, height: 80, borderRadius: 40, backgroundColor: Colors.gray100, borderWidth: 1, borderColor: Colors.pink400 },
   finalTitleSection: { alignItems: 'center', gap: Space.s200 },
@@ -837,7 +1099,7 @@ const s = StyleSheet.create({
   finalStatValue: { fontSize: FontSize.size800, fontWeight: '700', color: Colors.black, lineHeight: 38.4, letterSpacing: -0.64, textAlign: 'center' },
   finalStatLabel: { fontSize: FontSize.size100, color: Colors.black, lineHeight: 16.8, letterSpacing: -0.24, textAlign: 'center' },
   finalMsgBubble: {
-    backgroundColor: Colors.gray050, borderWidth: 1, borderColor: Colors.blue100,
+    backgroundColor: Colors.white, borderWidth: 1, borderColor: Colors.blue100,
     borderRadius: Radius.r300, paddingTop: 12, paddingBottom: 15, paddingHorizontal: Space.s250,
     flexDirection: 'column', alignItems: 'center', gap: Space.s100,
     marginBottom: Space.s250, width: '100%',
@@ -846,7 +1108,7 @@ const s = StyleSheet.create({
   finalMsgBold: { fontSize: FontSize.size300, fontWeight: '700', color: Colors.black, lineHeight: 24, letterSpacing: -0.2, textAlign: 'center' },
   finalMsgHighlight: { color: '#005DE2' },
   finalMsgSub: { fontSize: FontSize.size050, color: Colors.black, lineHeight: 15, letterSpacing: -0.2, textAlign: 'center' },
-  finalFooter: { flexDirection: 'column', alignItems: 'flex-end', gap: Space.s250, width: '100%' },
+  finalFooter: { flexDirection: 'column', alignItems: 'flex-end', gap: 52, width: '100%', marginTop: -Space.s300 },
   finalIconsRow: { flexDirection: 'row', gap: Space.s250 },
   confirmBtn: { backgroundColor: Colors.blue500, borderRadius: Radius.r300, paddingHorizontal: Space.s250, paddingVertical: Space.s100 },
   confirmBtnText: { fontSize: FontSize.size200, fontWeight: '500', color: Colors.white, lineHeight: 16.8, letterSpacing: -0.2 },

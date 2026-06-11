@@ -44,7 +44,7 @@ function cardDate(item: Anyway): string {
 
 export default function FeedScreen() {
   const { width: screenWidth } = useWindowDimensions();
-  const [size, setSize] = useState<'small' | 'big'>('small');
+  const [size, setSize] = useState<'small' | 'big'>('big');
   const [items, setItems] = useState<Anyway[]>([]);
   const [loading, setLoading] = useState(false);
   const [hasMore, setHasMore] = useState(true);
@@ -182,25 +182,51 @@ export default function FeedScreen() {
     );
   };
 
-  // 카드 썸네일 (이전 레이아웃: name/time 상단 + ANYWAY 문구 하단)
-  const renderCard = (item: Anyway, key: string | number, w: number, h: number, borderColor: string, big = false) => (
-    <TouchableOpacity
-      key={key}
-      activeOpacity={0.85}
-      onPress={() => setSelected(item)}
-      style={[s.card, { width: w, height: h, borderColor }]}
-    >
-      {renderCardBg(item, w, h)}
-      <View style={s.metaRow}>
-        <Text style={s.metaName}>{nicknames[item.userId] ?? 'name'}</Text>
-        <Text style={s.metaTime}>{formatTime(item)}</Text>
-      </View>
-      <View style={s.textRow}>
-        <Text style={s.anywayLabel}>ANYWAY,</Text>
-        <Text style={[s.anywayText, big && { fontSize: FontSize.size300 }]} numberOfLines={2}>{item.anywayText}</Text>
-      </View>
-    </TouchableOpacity>
-  );
+  // 카드 썸네일
+  const renderCard = (item: Anyway, key: string | number, w: number, h: number, borderColor: string, big = false) => {
+    // 크게: 박스(테두리/배경/그림자) 없이 이름·날짜 → 카드 → ANYWAY → 문구 순으로 표시
+    if (big) {
+      return (
+        <TouchableOpacity
+          key={key}
+          activeOpacity={0.85}
+          onPress={() => setSelected(item)}
+          style={s.bigItem}
+        >
+          <View style={s.bigMetaRow}>
+            <Text style={s.bigName}>{nicknames[item.userId] ?? 'name'}</Text>
+            <Text style={s.bigTime}>{formatTime(item)}</Text>
+          </View>
+          <View style={{ width: w, height: h, borderRadius: Radius.r300, overflow: 'hidden', alignSelf: 'center' }}>
+            {renderCardBg(item, w, h)}
+          </View>
+          <View style={s.bigTextRow}>
+            <Text style={s.bigAnywayLabel}>ANYWAY,</Text>
+            <Text style={s.bigAnywayText} numberOfLines={2}>{item.anywayText}</Text>
+          </View>
+        </TouchableOpacity>
+      );
+    }
+    // 작게: 기존 오버레이 카드
+    return (
+      <TouchableOpacity
+        key={key}
+        activeOpacity={0.85}
+        onPress={() => setSelected(item)}
+        style={[s.card, { width: w, height: h, borderColor }]}
+      >
+        {renderCardBg(item, w, h)}
+        <View style={s.metaRow}>
+          <Text style={s.metaName}>{nicknames[item.userId] ?? 'name'}</Text>
+          <Text style={s.metaTime}>{formatTime(item)}</Text>
+        </View>
+        <View style={s.textRow}>
+          <Text style={s.anywayLabel}>ANYWAY,</Text>
+          <Text style={s.anywayText} numberOfLines={2}>{item.anywayText}</Text>
+        </View>
+      </TouchableOpacity>
+    );
+  };
 
   return (
     <View style={s.root}>
@@ -230,16 +256,16 @@ export default function FeedScreen() {
           {/* 작게 / 크게 토글 */}
           <View style={s.toggleRow}>
             <TouchableOpacity
-              style={[s.toggleBtn, size === 'small' ? s.toggleBtnActive : s.toggleBtnInactive]}
-              onPress={() => setSize('small')}
-            >
-              <Text style={[s.toggleText, size === 'small' ? s.toggleTextActive : s.toggleTextInactive]}>작게</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
               style={[s.toggleBtn, size === 'big' ? s.toggleBtnActive : s.toggleBtnInactive]}
               onPress={() => setSize('big')}
             >
               <Text style={[s.toggleText, size === 'big' ? s.toggleTextActive : s.toggleTextInactive]}>크게</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[s.toggleBtn, size === 'small' ? s.toggleBtnActive : s.toggleBtnInactive]}
+              onPress={() => setSize('small')}
+            >
+              <Text style={[s.toggleText, size === 'small' ? s.toggleTextActive : s.toggleTextInactive]}>작게</Text>
             </TouchableOpacity>
           </View>
 
@@ -253,7 +279,10 @@ export default function FeedScreen() {
           {/* 크게: 1열 그리드 */}
           {size === 'big' && (
             <View style={s.bigList}>
-              {items.map((item, i) => renderCard(item, item.id ?? i, contentW, contentW * (476 / 286), bigBorderColor(i), true))}
+              {items.map((item, i) => {
+                const bigImgW = Math.round(contentW * 0.62);
+                return renderCard(item, item.id ?? i, bigImgW, Math.round(bigImgW * (476 / 286)), bigBorderColor(i), true);
+              })}
             </View>
           )}
 
@@ -327,7 +356,15 @@ const s = StyleSheet.create({
   toggleTextInactive: { color: Colors.gray500 },
   // 카드 공통
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: Space.s150 },
-  bigList: { gap: Space.s150 },
+  bigList: { gap: Space.s300 },
+  // 크게: 박스 없는 스택 레이아웃 + 항목 사이 연회색 구분선
+  bigItem: { gap: Space.s150, paddingBottom: Space.s300, borderBottomWidth: 1, borderBottomColor: Colors.gray100 },
+  bigMetaRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: Space.s050 },
+  bigTextRow: { gap: Space.s075, paddingHorizontal: Space.s050 },
+  bigName: { fontSize: FontSize.size400, fontWeight: '600', color: Colors.gray900, lineHeight: LineHeight.lh400, letterSpacing: -0.4 },
+  bigTime: { fontSize: FontSize.size300, color: Colors.gray500, lineHeight: LineHeight.lh300, letterSpacing: -0.4 },
+  bigAnywayLabel: { fontSize: FontSize.size200, fontWeight: '300', color: Colors.gray700, lineHeight: LineHeight.lh200, letterSpacing: -0.2 },
+  bigAnywayText: { fontSize: FontSize.size500, fontWeight: '600', color: Colors.gray900, lineHeight: LineHeight.lh500, letterSpacing: -0.4 },
   card: {
     borderWidth: 1, borderRadius: Radius.r300, overflow: 'hidden',
     paddingTop: Space.s200, paddingBottom: Space.s150, paddingHorizontal: Space.s150,

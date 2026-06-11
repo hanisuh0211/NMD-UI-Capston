@@ -116,12 +116,11 @@ const styles = StyleSheet.create({
   },
   appName: {
     fontSize: FontSize.size900,
-    fontWeight: '700',
+    fontFamily: 'JejuSamdasooBrand-Regular',
     color: Colors.gray900,
     textAlign: 'center',
     lineHeight: LineHeight.lh900,
     letterSpacing: -0.6,
-    fontFamily: 'Pretendard-Bold',
   },
   fieldContainer: {
     gap: Space.s150,

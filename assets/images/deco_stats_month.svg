@@ -1,0 +1,12 @@
+<svg preserveAspectRatio="none" width="100%" height="100%" overflow="visible" style="display: block;" viewBox="0 0 177.394 136.649" fill="none" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<path id="deco" opacity="0.5" d="M157.749 1.02497L114.608 64.3306L177.103 64.7008L177.247 65.6793L115.444 84.6978L167.561 100.597L167.397 101.575L115.733 99.7047L125.265 120.368L125.89 121.723L124.575 121.018L90.7947 102.912L79.1707 133.214L78.5457 134.841L78.2127 133.13L72.4763 103.673L42.8631 132.885L42.0418 132.358L54.5662 97.9869L0.562275 110.172L0.226338 109.239L52.4851 82.7642L16.2986 65.6529L16.5105 64.7008L54.4675 64.5074L43.9256 33.816L43.322 32.0591L44.7263 33.2759L72.0593 56.9615L74.6531 38.7867L74.8181 37.6324L75.5408 38.5484L84.5115 49.9195L100.652 20.2808L101.589 20.5689L98.405 53.0396L157.001 0.371649L157.749 1.02497Z" fill="url(#pattern0_440_3654)" stroke="#5FA6FF"/>
+<defs>
+<pattern id="pattern0_440_3654" patternUnits="userSpaceOnUse" patternTransform="matrix(12.8 0 0 25.6 85.7326 63.6894)" preserveAspectRatio="none" viewBox="0.391541 0 32 64" width="1" height="1">
+<use xlink:href="#pattern0_440_3654_inner" transform="translate(-32 0)"/>
+<g id="pattern0_440_3654_inner">
+<path id="Star 9" d="M8 0L9.79611 5.52786H15.6085L10.9062 8.94427L12.7023 14.4721L8 11.0557L3.29772 14.4721L5.09383 8.94427L0.391548 5.52786H6.20389L8 0Z" fill="#5FA6FF"/>
+</g>
+<use xlink:href="#pattern0_440_3654_inner" transform="translate(-16 32)"/>
+<use xlink:href="#pattern0_440_3654_inner" transform="translate(16 32)"/>
+</pattern></defs>
+</svg>

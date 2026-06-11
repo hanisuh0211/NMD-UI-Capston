@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity,
-  ScrollView, StatusBar, Alert, Image, TextInput, useWindowDimensions,
+  ScrollView, StatusBar, Alert, Image, useWindowDimensions,
+  Modal, TouchableWithoutFeedback,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -9,17 +10,19 @@ import { Colors, FontSize, LineHeight, Space, Radius } from '../../theme';
 import NotificationsIcon from '../../assets/icons/notifications.svg';
 import ArrowForwardIosIcon from '../../assets/icons/arrow_forward_ios.svg';
 import ArrowBackIcon from '../../assets/icons/arrow_back.svg';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { auth } from '../../firebaseConfig';
 import { getUserProfile, deleteUserProfile, updateUserProfile } from '../../lib/user';
-import { logOut, updateUserPassword } from '../../lib/auth';
+import { logOut } from '../../lib/auth';
 import CharacterAvatar from '../../components/CharacterAvatar';
+import DecoStarSvg from '../../assets/images/deco_star.svg';
 
 // 캐릭터 변경 카드 (회원가입 step3과 동일한 이미지/매핑)
 const EDIT_CHARACTERS = [
-  { id: 'char1', image: require('../../assets/images/char_female.png') },
-  { id: 'char2', image: require('../../assets/images/char_male.png') },
+  { id: 'char1', name: '캐릭터 A', image: require('../../assets/images/char_female.png') },
+  { id: 'char2', name: '캐릭터 B', image: require('../../assets/images/char_male.png') },
 ];
+const charName = (id: string) => EDIT_CHARACTERS.find((c) => c.id === id)?.name ?? '캐릭터';
 
 const SETTINGS = ['개인정보처리방침', '서비스 이용약관', '앱 버전 정보'];
 
@@ -32,69 +35,22 @@ export default function MyScreen() {
   const [selectedChar, setSelectedChar] = useState('char1');
   const [nickname, setNickname] = useState('');
   const [daysSince, setDaysSince] = useState(0);
+  const [pendingChar, setPendingChar] = useState<string | null>(null);
 
-  // 편집 폼 상태
-  const [editNickname, setEditNickname] = useState('');
-  const [editPw, setEditPw] = useState('');
-  const [editPwConfirm, setEditPwConfirm] = useState('');
-  const [pwError, setPwError] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const openEdit = () => setShowEdit(true);
 
-  // 편집 화면 진입 (현재 값으로 초기화)
-  const openEdit = () => {
-    setEditNickname(nickname);
-    setEditPw('');
-    setEditPwConfirm('');
-    setPwError(false);
-    setShowEdit(true);
-  };
-
-  // 변경사항 저장
-  const handleSave = async () => {
+  // 캐릭터 변경 확정 → 저장
+  const confirmChar = async () => {
+    const id = pendingChar;
+    setPendingChar(null);
+    if (!id) return;
+    setSelectedChar(id);
     const uid = auth.currentUser?.uid;
-    if (!uid) return;
-    // 비밀번호를 입력한 경우에만 검증
-    if (editPw || editPwConfirm) {
-      if (editPw.length < 6) {
-        Alert.alert('알림', '비밀번호는 6자 이상이어야 합니다.');
-        return;
-      }
-      if (editPw !== editPwConfirm) {
-        setPwError(true);
-        return;
-      }
-    }
-    setPwError(false);
-    setSaving(true);
-    try {
-      await updateUserProfile(uid, {
-        nickname: editNickname.trim(),
-        character: selectedChar,
-      });
-      if (editPw) {
-        const { error } = await updateUserPassword(editPw);
-        if (error === 'auth/requires-recent-login') {
-          setSaving(false);
-          Alert.alert('재로그인 필요', '보안을 위해 다시 로그인한 후 비밀번호를 변경해주세요.');
-          return;
-        }
-        if (error) {
-          setSaving(false);
-          Alert.alert('오류', '비밀번호 변경 중 문제가 발생했습니다.');
-          return;
-        }
-      }
-      setNickname(editNickname.trim());
-      setSaving(false);
-      setShowEdit(false);
-      Alert.alert('완료', '변경사항이 저장되었습니다.');
-    } catch (e) {
-      setSaving(false);
-      Alert.alert('오류', '저장 중 문제가 발생했습니다.');
-    }
+    if (uid) await updateUserProfile(uid, { character: id });
   };
 
-  useEffect(() => {
+  // 프로필 로드 (마운트 + 화면 포커스 시 → 닉네임 변경 후 복귀 반영)
+  const loadProfile = useCallback(() => {
     const uid = auth.currentUser?.uid;
     if (!uid) return;
     getUserProfile(uid).then(({ profile }) => {
@@ -113,6 +69,8 @@ export default function MyScreen() {
       }
     });
   }, []);
+  useEffect(() => { loadProfile(); }, [loadProfile]);
+  useFocusEffect(useCallback(() => { loadProfile(); }, [loadProfile]));
 
   // ── 로그아웃 ──
   const handleLogout = () => {
@@ -178,86 +136,69 @@ export default function MyScreen() {
           </View>
 
           <ScrollView contentContainerStyle={s.editContainer} keyboardShouldPersistTaps="handled">
-            {/* 캐릭터 변경 */}
-            <Text style={s.editTitle}>캐릭터 변경</Text>
+            {/* 계정 */}
+            <Text style={s.editTitle}>계정</Text>
+            <TouchableOpacity style={s.accountRow} activeOpacity={0.7} onPress={() => router.push('/my/nickname')}>
+              <Text style={s.accountLabel}>닉네임</Text>
+              <View style={s.accountRight}>
+                <Text style={s.accountValue}>{nickname || '(없음)'}</Text>
+                <ArrowForwardIosIcon width={16} height={16} color={Colors.gray500} />
+              </View>
+            </TouchableOpacity>
+            <TouchableOpacity style={s.accountRow} activeOpacity={0.7} onPress={() => router.push('/my/password')}>
+              <Text style={s.accountLabel}>비밀번호 변경</Text>
+              <ArrowForwardIosIcon width={16} height={16} color={Colors.gray500} />
+            </TouchableOpacity>
+
+            {/* 캐릭터 */}
+            <Text style={[s.editTitle, { marginTop: Space.s700 }]}>캐릭터</Text>
             <View style={s.editCardRow}>
               {EDIT_CHARACTERS.map(char => {
                 const isSel = selectedChar === char.id;
                 return (
-                  <TouchableOpacity
-                    key={char.id}
-                    activeOpacity={0.8}
-                    onPress={() => setSelectedChar(char.id)}
-                    style={[
-                      s.editCard, { width: cardSize, height: cardSize },
-                      isSel ? s.editCardSelected : s.editCardDefault,
-                    ]}
-                  >
-                    <Image
-                      source={char.image}
-                      style={{ position: 'absolute', top: 0, left: 0, width: cardSize, height: cardSize }}
-                      resizeMode="cover"
-                    />
-                    <View style={s.editCardContent}>
-                      <Text style={s.editCardName}>캐릭터 이름</Text>
-                    </View>
-                  </TouchableOpacity>
+                  <View key={char.id} style={s.charCol}>
+                    <TouchableOpacity
+                      activeOpacity={0.8}
+                      onPress={() => { if (char.id !== selectedChar) setPendingChar(char.id); }}
+                      style={[
+                        s.editCard, { width: cardSize, height: cardSize },
+                        isSel ? s.editCardSelected : s.editCardDefault,
+                      ]}
+                    >
+                      <Image
+                        source={char.image}
+                        style={{ position: 'absolute', top: 0, left: 0, width: cardSize, height: cardSize }}
+                        resizeMode="cover"
+                      />
+                    </TouchableOpacity>
+                    <Text style={s.charLabel}>{char.name}</Text>
+                  </View>
                 );
               })}
             </View>
-
-            {/* 사용자 정보 */}
-            <Text style={[s.editTitle, { marginTop: Space.s300 }]}>사용자 정보</Text>
-            <View style={s.formSection}>
-              {/* 닉네임 */}
-              <View style={s.fieldSection}>
-                <Text style={s.fieldLabel}>닉네임</Text>
-                <TextInput
-                  style={s.input}
-                  placeholder="닉네임"
-                  placeholderTextColor={Colors.gray500}
-                  value={editNickname}
-                  onChangeText={setEditNickname}
-                />
-              </View>
-              {/* 비밀번호 */}
-              <View style={s.fieldSection}>
-                <Text style={s.fieldLabel}>비밀번호</Text>
-                <View style={s.passwordInputs}>
-                  <TextInput
-                    style={s.input}
-                    placeholder="비밀번호"
-                    placeholderTextColor={Colors.gray500}
-                    value={editPw}
-                    onChangeText={(t) => { setEditPw(t); setPwError(false); }}
-                    secureTextEntry
-                  />
-                  <View>
-                    <TextInput
-                      style={[s.input, pwError && s.inputError]}
-                      placeholder="비밀번호 확인"
-                      placeholderTextColor={Colors.gray500}
-                      value={editPwConfirm}
-                      onChangeText={(t) => { setEditPwConfirm(t); setPwError(false); }}
-                      secureTextEntry
-                    />
-                    {pwError && <Text style={s.errorText}>*비밀번호가 일치하지 않습니다.</Text>}
-                  </View>
-                </View>
-              </View>
-            </View>
           </ScrollView>
 
-          {/* 하단 저장 버튼 */}
-          <View style={s.bottomSection}>
-            <TouchableOpacity
-              style={[s.saveBtn, saving && s.saveBtnDisabled]}
-              onPress={handleSave}
-              disabled={saving}
-            >
-              <Text style={s.saveBtnText}>{saving ? '저장 중...' : '저장'}</Text>
-            </TouchableOpacity>
-          </View>
+          {/* 캐릭터 변경 확인 팝업 */}
+          <Modal visible={pendingChar !== null} transparent animationType="fade" onRequestClose={() => setPendingChar(null)}>
+            <TouchableWithoutFeedback onPress={() => setPendingChar(null)}>
+              <View style={s.modalOverlay}>
+                <TouchableWithoutFeedback onPress={() => {}}>
+                  <View style={s.confirmCard}>
+                    <Text style={s.confirmTitle}>캐릭터 변경</Text>
+                    <Text style={s.confirmBody}>캐릭터를 '{charName(pendingChar ?? '')}'으로{'\n'}변경하시겠습니까?</Text>
+                    <View style={s.confirmBtnRow}>
+                      <TouchableOpacity style={[s.confirmBtn, s.confirmCancel]} onPress={() => setPendingChar(null)}>
+                        <Text style={s.confirmCancelText}>취소</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={[s.confirmBtn, s.confirmOk]} onPress={confirmChar}>
+                        <Text style={s.confirmOkText}>저장</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                </TouchableWithoutFeedback>
+              </View>
+            </TouchableWithoutFeedback>
+          </Modal>
         </SafeAreaView>
       </View>
     );
@@ -268,6 +209,13 @@ export default function MyScreen() {
     <View style={s.root}>
       <StatusBar barStyle="dark-content" />
       <LinearGradient colors={[Colors.blue200, Colors.gray050, Colors.white]} style={s.gradBg} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} />
+      {/* 하단 연한 하늘색 그라데이션 (배경) */}
+      <LinearGradient colors={['rgba(255,255,255,0)', '#F1F7FF']} style={StyleSheet.absoluteFill} pointerEvents="none" />
+      {/* 별 데코 */}
+      <DecoStarSvg width={24} height={42} style={[s.myStar, { left: '50%', marginLeft: 181, top: 298 }]} pointerEvents="none" />
+      <DecoStarSvg width={16} height={28} style={[s.myStar, { left: '50%', marginLeft: 157, top: 331 }]} pointerEvents="none" />
+      <DecoStarSvg width={20} height={35} style={[s.myStar, { left: '50%', marginLeft: -199, top: 165 }]} pointerEvents="none" />
+      <DecoStarSvg width={12} height={21} style={[s.myStar, { left: '50%', marginLeft: -162, top: 200 }]} pointerEvents="none" />
       <SafeAreaView style={s.safe}>
         <ScrollView contentContainerStyle={s.container}>
           {/* 헤더 */}
@@ -326,6 +274,7 @@ export default function MyScreen() {
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: Colors.white },
   gradBg: { position: 'absolute', top: 0, left: 0, right: 0, height: 102 },
+  myStar: { position: 'absolute', zIndex: 1 },
   safe: { flex: 1 },
 
   // ── 기본 화면 ──
@@ -386,8 +335,33 @@ const s = StyleSheet.create({
     lineHeight: LineHeight.lh600, letterSpacing: -0.4,
     paddingLeft: Space.s050, paddingBottom: Space.s300,
   },
-  // 캐릭터 카드 (2열)
+  // 계정 리스트 행
+  accountRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: Space.s150, paddingLeft: Space.s050 },
+  accountLabel: { fontSize: FontSize.size400, fontWeight: '600', color: Colors.gray900, letterSpacing: -0.4 },
+  accountRight: { flexDirection: 'row', alignItems: 'center', gap: Space.s100 },
+  accountValue: { fontSize: FontSize.size400, color: Colors.gray500, letterSpacing: -0.4 },
+  // 캐릭터 카드 (2열) — 카드 + 아래 라벨
   editCardRow: { flexDirection: 'row', gap: Space.s200 },
+  charCol: { gap: Space.s150, alignItems: 'center' },
+  charLabel: { fontSize: FontSize.size500, fontWeight: '700', color: Colors.gray900, letterSpacing: -0.2, textAlign: 'center' },
+  // 편집 모달
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(96,98,109,0.5)', alignItems: 'center', justifyContent: 'center', paddingHorizontal: Space.s300 },
+  modalCard: { width: '100%', maxWidth: 360, backgroundColor: Colors.white, borderRadius: Radius.r300, padding: Space.s300, gap: Space.s200 },
+  modalTitle: { fontSize: FontSize.size500, fontWeight: '700', color: Colors.gray900, letterSpacing: -0.4, marginBottom: Space.s050 },
+  // 캐릭터 변경 확인 팝업
+  confirmCard: { width: '100%', maxWidth: 320, backgroundColor: Colors.white, borderRadius: Radius.r300, paddingVertical: Space.s300, paddingHorizontal: Space.s250, alignItems: 'center', gap: Space.s200 },
+  confirmTitle: { fontSize: FontSize.size400, fontWeight: '700', color: Colors.gray900, letterSpacing: -0.2 },
+  confirmBody: { fontSize: FontSize.size300, color: Colors.gray700, letterSpacing: -0.4, textAlign: 'center', lineHeight: LineHeight.lh300 },
+  confirmBtnRow: { flexDirection: 'row', gap: Space.s100, width: '100%', marginTop: Space.s100 },
+  confirmBtn: { flex: 1, borderRadius: Radius.r100, paddingVertical: Space.s150, alignItems: 'center' },
+  confirmCancel: { backgroundColor: Colors.gray100 },
+  confirmCancelText: { fontSize: FontSize.size300, fontWeight: '600', color: Colors.gray500, letterSpacing: -0.2 },
+  confirmOk: { backgroundColor: Colors.blue500 },
+  confirmOkText: { fontSize: FontSize.size300, fontWeight: '600', color: Colors.white, letterSpacing: -0.2 },
+  // 전체화면 변경 페이지
+  fullHeader: { flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', paddingHorizontal: Space.s200, paddingVertical: Space.s100 },
+  closeX: { fontSize: 20, color: Colors.gray500 },
+  fullBody: { paddingHorizontal: Space.s200, paddingTop: Space.s400, gap: Space.s300 },
   editCard: {
     borderRadius: Radius.r200, overflow: 'hidden',
     paddingHorizontal: Space.s150, paddingVertical: Space.s100,

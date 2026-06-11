@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, ScrollView,
+  View, Text, StyleSheet, TouchableOpacity, ScrollView, Image,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -44,6 +44,8 @@ export default function SignupStep1() {
   return (
     <View style={s.root}>
       <LinearGradient colors={[Colors.blue200, Colors.gray050, Colors.white]} style={s.gradBg} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} />
+      <Image source={require('../../assets/images/deco_join_star.png')} style={s.decoStarTL} resizeMode="contain" pointerEvents="none" />
+      <Image source={require('../../assets/images/deco_join_star.png')} style={s.decoStarBR} resizeMode="contain" pointerEvents="none" />
       <SafeAreaView style={s.safe}>
         {/* 상단 버튼 영역 */}
         <View style={[s.topBtnRow, { top: insets.top + Space.s100 }]}>
@@ -115,6 +117,8 @@ export default function SignupStep1() {
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: Colors.white },
   gradBg: { position: 'absolute', top: 0, left: 0, right: 0, height: 102 },
+  decoStarTL: { position: 'absolute', left: -48, top: 47, width: 183, height: 184, zIndex: 0 },
+  decoStarBR: { position: 'absolute', right: -67, bottom: 34, width: 183, height: 184, zIndex: 0 },
   safe: { flex: 1 },
   topBtnRow: { position: 'absolute', left: Space.s200, right: Space.s200, zIndex: 10, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   topBtn: { padding: 4 },
