@@ -1,8 +1,14 @@
+import { Platform } from 'react-native';
 import { initializeApp } from 'firebase/app';
-import { initializeAuth, getAuth, type Auth } from 'firebase/auth';
+import {
+  initializeAuth,
+  getAuth,
+  browserLocalPersistence,
+  type Auth,
+} from 'firebase/auth';
 // getReactNativePersistence는 firebase 버전/번들 해석에 따라 누락될 수 있어 동적으로 가져옴
 import * as firebaseAuth from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
+import { initializeFirestore } from 'firebase/firestore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const firebaseConfig = {
@@ -17,19 +23,32 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 
-// RN 영구 로그인(getReactNativePersistence)이 가능하면 사용,
-// 번들 해석 문제로 없으면 기본 인증으로 폴백 → 앱이 항상 정상 구동
-const getRNPersistence = (firebaseAuth as any).getReactNativePersistence;
+// 플랫폼별 인증 영속성 분기
+// - web: 브라우저 localStorage (browserLocalPersistence)
+// - native: AsyncStorage (getReactNativePersistence), 없으면 기본 폴백
 let _auth: Auth;
 try {
-  if (typeof getRNPersistence === 'function') {
-    _auth = initializeAuth(app, { persistence: getRNPersistence(AsyncStorage) });
+  if (Platform.OS === 'web') {
+    _auth = initializeAuth(app, { persistence: browserLocalPersistence });
   } else {
-    _auth = getAuth(app);
+    const getRNPersistence = (firebaseAuth as any).getReactNativePersistence;
+    if (typeof getRNPersistence === 'function') {
+      _auth = initializeAuth(app, { persistence: getRNPersistence(AsyncStorage) });
+    } else {
+      _auth = getAuth(app);
+    }
   }
 } catch {
   _auth = getAuth(app);
 }
 
 export const auth = _auth;
-export const db = getFirestore(app);
+
+// Firestore: 웹/제한 네트워크에서 WebChannel이 막히면 읽기가 멈추므로
+// long-polling 자동감지를 켜서 안정적으로 연결되게 함
+export const db = initializeFirestore(app, {
+  // 웹에서는 WebChannel이 자주 막히므로 long-polling을 강제, 네이티브는 자동감지
+  ...(Platform.OS === 'web'
+    ? { experimentalForceLongPolling: true }
+    : { experimentalAutoDetectLongPolling: true }),
+});

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity,
-  ScrollView, StatusBar, Alert, Image, useWindowDimensions,
+  ScrollView, StatusBar, Image, useWindowDimensions,
   Modal, TouchableWithoutFeedback,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -14,6 +14,7 @@ import { router, useFocusEffect } from 'expo-router';
 import { auth } from '../../firebaseConfig';
 import { getUserProfile, deleteUserProfile, updateUserProfile } from '../../lib/user';
 import { logOut } from '../../lib/auth';
+import { confirm, notify } from '../../lib/dialog';
 import CharacterAvatar from '../../components/CharacterAvatar';
 import DecoStarSvg from '../../assets/images/deco_star.svg';
 
@@ -74,51 +75,37 @@ export default function MyScreen() {
 
   // ── 로그아웃 ──
   const handleLogout = () => {
-    Alert.alert('로그아웃', '정말 로그아웃하시겠습니까?', [
-      { text: '취소', style: 'cancel' },
-      {
-        text: '로그아웃', style: 'destructive',
-        onPress: async () => {
-          await logOut();
-          router.replace('/login');
-        },
-      },
-    ]);
+    confirm('로그아웃', '정말 로그아웃하시겠습니까?', async () => {
+      await logOut();
+      router.replace('/login');
+    }, '로그아웃');
   };
 
   // ── 회원탈퇴 ──
   const handleDeleteAccount = () => {
-    Alert.alert(
+    confirm(
       '회원탈퇴',
       '탈퇴하면 모든 데이터가 삭제되며 복구할 수 없습니다.\n정말 탈퇴하시겠습니까?',
-      [
-        { text: '취소', style: 'cancel' },
-        {
-          text: '탈퇴하기', style: 'destructive',
-          onPress: async () => {
-            const user = auth.currentUser;
-            if (!user) return;
-            try {
-              // Firestore 유저 데이터 삭제
-              await deleteUserProfile(user.uid);
-              // Firebase Auth 계정 삭제
-              await user.delete();
-              router.replace('/login');
-            } catch (error: any) {
-              // 재인증이 필요한 경우 (오래된 세션)
-              if (error.code === 'auth/requires-recent-login') {
-                Alert.alert(
-                  '재로그인 필요',
-                  '보안을 위해 다시 로그인한 후 탈퇴해주세요.',
-                  [{ text: '확인', onPress: () => router.replace('/login') }]
-                );
-              } else {
-                Alert.alert('오류', '회원탈퇴 중 오류가 발생했습니다.');
-              }
-            }
-          },
-        },
-      ]
+      async () => {
+        const user = auth.currentUser;
+        if (!user) return;
+        try {
+          // Firestore 유저 데이터 삭제
+          await deleteUserProfile(user.uid);
+          // Firebase Auth 계정 삭제
+          await user.delete();
+          router.replace('/login');
+        } catch (error: any) {
+          // 재인증이 필요한 경우 (오래된 세션)
+          if (error.code === 'auth/requires-recent-login') {
+            notify('재로그인 필요', '보안을 위해 다시 로그인한 후 탈퇴해주세요.');
+            router.replace('/login');
+          } else {
+            notify('오류', '회원탈퇴 중 오류가 발생했습니다.');
+          }
+        }
+      },
+      '탈퇴하기',
     );
   };
 

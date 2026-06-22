@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, TextInput, Alert,
+  View, Text, StyleSheet, TouchableOpacity, TextInput,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { Colors, FontSize, LineHeight, Space, Radius } from '../../theme';
 import { changePassword } from '../../lib/auth';
+import { notify } from '../../lib/dialog';
 
 export default function PasswordScreen() {
   const [curPw, setCurPw] = useState('');
@@ -16,18 +17,19 @@ export default function PasswordScreen() {
   const [saving, setSaving] = useState(false);
 
   const save = async () => {
-    if (!curPw) { Alert.alert('알림', '현재 비밀번호를 입력해주세요.'); return; }
-    if (newPw.length < 6) { Alert.alert('알림', '새 비밀번호는 6자 이상이어야 합니다.'); return; }
+    if (!curPw) { notify('알림', '현재 비밀번호를 입력해주세요.'); return; }
+    if (newPw.length < 6) { notify('알림', '새 비밀번호는 6자 이상이어야 합니다.'); return; }
     if (newPw !== newPwConfirm) { setPwError(true); return; }
     setSaving(true);
     const { error } = await changePassword(curPw, newPw);
     setSaving(false);
     if (error === 'auth/wrong-password' || error === 'auth/invalid-credential') {
-      Alert.alert('오류', '현재 비밀번호가 올바르지 않습니다.');
+      notify('오류', '현재 비밀번호가 올바르지 않습니다.');
       return;
     }
-    if (error) { Alert.alert('오류', '비밀번호 변경 중 문제가 발생했습니다.'); return; }
-    Alert.alert('완료', '비밀번호가 변경되었습니다.', [{ text: '확인', onPress: () => router.back() }]);
+    if (error) { notify('오류', '비밀번호 변경 중 문제가 발생했습니다.'); return; }
+    notify('완료', '비밀번호가 변경되었습니다.');
+    router.back();
   };
 
   return (

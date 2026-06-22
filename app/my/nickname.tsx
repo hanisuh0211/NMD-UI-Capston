@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, TextInput, Alert,
+  View, Text, StyleSheet, TouchableOpacity, TextInput,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -8,6 +8,7 @@ import { router } from 'expo-router';
 import { Colors, FontSize, LineHeight, Space, Radius } from '../../theme';
 import { auth } from '../../firebaseConfig';
 import { getUserProfile, updateUserProfile } from '../../lib/user';
+import { notify } from '../../lib/dialog';
 
 export default function NicknameScreen() {
   const [nickname, setNickname] = useState('');
@@ -24,13 +25,13 @@ export default function NicknameScreen() {
   const save = async () => {
     const uid = auth.currentUser?.uid;
     if (!uid) return;
-    if (!nickname.trim()) { Alert.alert('알림', '닉네임을 입력해주세요.'); return; }
+    if (!nickname.trim()) { notify('알림', '닉네임을 입력해주세요.'); return; }
     setSaving(true);
     try {
       await updateUserProfile(uid, { nickname: nickname.trim() });
       router.back();
     } catch {
-      Alert.alert('오류', '저장 중 문제가 발생했습니다.');
+      notify('오류', '저장 중 문제가 발생했습니다.');
     } finally {
       setSaving(false);
     }
