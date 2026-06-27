@@ -9,6 +9,8 @@ import {
   where,
   orderBy,
   serverTimestamp,
+  increment,
+  deleteField,
 } from 'firebase/firestore';
 import { db } from '../firebaseConfig';
 
@@ -20,10 +22,51 @@ export type Anyway = {
   done: string;
   anywayText: string;
   date: string;
-  visibility: '전체 공개' | '친구 공개' | '나만 보기';
-  emotion: string;
+  visibility: '전체 공개' | '나만 보기';
+  emotion?: string;             // (구버전 호환) 단일 표정 라벨
+  expressions?: string[];       // 이 카드에 허용된 표정 키 목록
+  reactions?: Record<string, number>;   // 표정별 카운트
+  reactedBy?: Record<string, string>;   // uid → 선택한 표정 키
   cardStyle?: number;  // 카드 디자인 인덱스
   createdAt?: any;
+};
+
+// 피드 리액션 설정/변경: 이전 선택(prevType)이 있으면 감소, 새 선택 증가
+export const setReaction = async (
+  anywayId: string,
+  uid: string,
+  type: string,
+  prevType?: string | null,
+) => {
+  try {
+    if (prevType === type) return { error: null };
+    const updates: Record<string, any> = {
+      [`reactedBy.${uid}`]: type,
+      [`reactions.${type}`]: increment(1),
+    };
+    if (prevType) updates[`reactions.${prevType}`] = increment(-1);
+    await updateDoc(doc(db, 'anyways', anywayId), updates);
+    return { error: null };
+  } catch (error: any) {
+    return { error: error.message };
+  }
+};
+
+// 피드 리액션 취소: 내가 남긴 표정 삭제
+export const removeReaction = async (
+  anywayId: string,
+  uid: string,
+  type: string,
+) => {
+  try {
+    await updateDoc(doc(db, 'anyways', anywayId), {
+      [`reactedBy.${uid}`]: deleteField(),
+      [`reactions.${type}`]: increment(-1),
+    });
+    return { error: null };
+  } catch (error: any) {
+    return { error: error.message };
+  }
 };
 
 // ANYWAY 생성

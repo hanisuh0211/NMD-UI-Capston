@@ -7,7 +7,6 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Colors, FontSize, LineHeight, Space, Radius } from '../../theme';
-import NotificationsIcon from '../../assets/icons/notifications.svg';
 import ArrowForwardIosIcon from '../../assets/icons/arrow_forward_ios.svg';
 import ArrowBackIcon from '../../assets/icons/arrow_back.svg';
 import { router, useFocusEffect } from 'expo-router';
@@ -206,10 +205,7 @@ export default function MyScreen() {
       <SafeAreaView style={s.safe}>
         <ScrollView contentContainerStyle={s.container}>
           {/* 헤더 */}
-          <View style={s.header}>
-            <View style={{ width: 24 }} />
-            <NotificationsIcon width={24} height={24} color={Colors.gray900} />
-          </View>
+          <View style={s.header} />
 
           {/* 프로필 카드 */}
           <View style={s.profileSection}>

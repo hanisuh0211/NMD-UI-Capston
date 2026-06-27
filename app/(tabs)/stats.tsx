@@ -11,7 +11,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import Star12Icon from '../../assets/icons/star_12.svg';
 import { Colors, FontSize, LineHeight, Space, Radius } from '../../theme';
-import NotificationsIcon from '../../assets/icons/notifications.svg';
 import ArrowForwardIosIcon from '../../assets/icons/arrow_forward_ios.svg';
 import CallIcon from '../../assets/icons/call.svg';
 import TableRowsIcon from '../../assets/icons/table_rows.svg';
@@ -666,9 +665,6 @@ export default function StatsScreen() {
             {/* 임시: 개발용 (지난달 샘플 카드 생성) */}
             <TouchableOpacity style={s.seedBtn} onPress={handleSeedLastMonth}>
               <Text style={s.seedBtnText}>지난달 샘플</Text>
-            </TouchableOpacity>
-            <TouchableOpacity>
-              <NotificationsIcon width={28} height={28} color={Colors.gray900} />
             </TouchableOpacity>
           </View>
 

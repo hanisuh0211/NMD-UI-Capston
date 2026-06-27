@@ -54,7 +54,6 @@ type RecentFeed = {
   char: string;  // 작성자 캐릭터 id (char1/char2)
 };
 
-import NotificationsIcon from '../../assets/icons/notifications.svg';
 import Flag2Icon from '../../assets/icons/flag_2.svg';
 import RewardedAdsIcon from '../../assets/icons/rewarded_ads.svg';
 import Flag2BlueIcon from '../../assets/icons/flag_2_blue.svg';
@@ -64,6 +63,7 @@ import ArrowBackIcon from '../../assets/icons/arrow_back.svg';
 import CallIcon from '../../assets/icons/call.svg';
 import SwapHorizIcon from '../../assets/icons/swap_horiz.svg';
 import BorderColorIcon from '../../assets/icons/border_color.svg';
+import { EXPRESSIONS } from '../../lib/expressions';
 
 type Step = 'home' | 'goal' | 'done' | 'result' | 'saved';
 
@@ -119,7 +119,12 @@ export default function MainScreen() {
   const [anywayText, setAnywayText] = useState('');
   const [anywayLoading, setAnywayLoading] = useState(false);
   const [visibility, setVisibility] = useState('전체 공개');
-  const [emotion, setEmotion] = useState('같이 힘내요');
+  // 표정: 여러 개 중복 선택 가능 (저장은 키 배열)
+  const [expressions, setExpressions] = useState<string[]>(['wink']);
+  const toggleExpression = (key: string) =>
+    setExpressions((prev) =>
+      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
+    );
   const [showCardModal, setShowCardModal] = useState(false);
 
   // 카드 이미지 비율 (Figma 원본: 286×476)
@@ -185,7 +190,7 @@ export default function MainScreen() {
         setDone(todayCard.done);
         setAnywayText(todayCard.anywayText);
         setVisibility(todayCard.visibility);
-        setEmotion(todayCard.emotion);
+        if (todayCard.expressions?.length) setExpressions(todayCard.expressions);
         setCardStyle(todayCard.cardStyle ?? 0);
         setSavedId(todayCard.id ?? null);
         setStep('saved');
@@ -263,8 +268,8 @@ export default function MainScreen() {
     if (savedId) {
       // 이미 저장된 카드 → 설정만 업데이트 (중복 생성 방지)
       const { error } = await updateAnyway(savedId, {
-        visibility: visibility as '전체 공개' | '친구 공개' | '나만 보기',
-        emotion,
+        visibility: visibility as '전체 공개' | '나만 보기',
+        expressions,
       });
       setSaving(false);
       if (error) {
@@ -279,8 +284,8 @@ export default function MainScreen() {
         done,
         anywayText,
         date: TODAY.toISOString(),
-        visibility: visibility as '전체 공개' | '친구 공개' | '나만 보기',
-        emotion,
+        visibility: visibility as '전체 공개' | '나만 보기',
+        expressions,
         cardStyle,
       });
       setSaving(false);
@@ -315,12 +320,7 @@ export default function MainScreen() {
         <Image source={DECO_TOP} style={[ds.decoTop, { left: decoLeft, top: decoTop, width: decoW, height: decoH }]} resizeMode="stretch" pointerEvents="none" />
         <SafeAreaView style={s.safe}>
           <ScrollView contentContainerStyle={s.container}>
-            <View style={s.header}>
-              <View style={{ width: 24, height: 24 }} />
-              <TouchableOpacity>
-                <NotificationsIcon width={24} height={24} color={Colors.gray900} />
-              </TouchableOpacity>
-            </View>
+            <View style={s.header} />
 
             <View style={s.titleSection}>
               <Text style={s.dateText}>{DATE_STR}</Text>
@@ -614,7 +614,7 @@ export default function MainScreen() {
             <View style={s.settingSection}>
               <Text style={s.settingTitle}>공개 설정</Text>
               <View style={s.chipRow}>
-                {['전체 공개', '친구 공개', '나만 보기'].map(v => (
+                {['전체 공개', '나만 보기'].map(v => (
                   <TouchableOpacity key={v} style={[s.chip, visibility === v ? s.chipActive : s.chipInactive]} onPress={() => setVisibility(v)}>
                     <Text style={[s.chipText, visibility === v ? s.chipTextActive : s.chipTextInactive]}>{v}</Text>
                   </TouchableOpacity>
@@ -625,11 +625,15 @@ export default function MainScreen() {
             <View style={s.settingSection}>
               <Text style={s.settingTitle}>표정 설정</Text>
               <View style={s.chipRow}>
-                {['같이 힘내요', '멋있어요', '분발해요'].map(v => (
-                  <TouchableOpacity key={v} style={[s.chip, emotion === v ? s.chipActive : s.chipInactive]} onPress={() => setEmotion(v)}>
-                    <Text style={[s.chipText, emotion === v ? s.chipTextActive : s.chipTextInactive]}>{v}</Text>
-                  </TouchableOpacity>
-                ))}
+                {EXPRESSIONS.map(e => {
+                  const on = expressions.includes(e.key);
+                  return (
+                    <TouchableOpacity key={e.key} style={[s.chipExp, on ? s.chipActive : s.chipInactive]} onPress={() => toggleExpression(e.key)}>
+                      <Image source={e.icon} style={s.chipExpIcon} />
+                      <Text style={[s.chipText, on ? s.chipTextActive : s.chipTextInactive]}>{e.label}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
               </View>
             </View>
           </ScrollView>
@@ -684,12 +688,7 @@ export default function MainScreen() {
         <Image source={DECO_TOP} style={[ds.decoTop, { left: decoLeft, top: decoTop, width: decoW, height: decoH }]} resizeMode="stretch" pointerEvents="none" />
         <SafeAreaView style={s.safe}>
           <ScrollView contentContainerStyle={s.container}>
-            <View style={s.header}>
-              <View style={{ width: 24, height: 24 }} />
-              <TouchableOpacity>
-                <NotificationsIcon width={24} height={24} color={Colors.gray900} />
-              </TouchableOpacity>
-            </View>
+            <View style={s.header} />
             <View style={s.titleSection}>
               <Text style={s.dateText}>{DATE_STR}</Text>
               <Text style={s.daysText}>{daysSince}days</Text>
@@ -935,6 +934,8 @@ const s = StyleSheet.create({
   settingTitle: { fontSize: FontSize.size500, fontWeight: '700', color: Colors.gray900, lineHeight: LineHeight.lh500, letterSpacing: -0.2, paddingLeft: Space.s050, paddingBottom: Space.s200 },
   chipRow: { flexDirection: 'row', gap: Space.s150, flexWrap: 'wrap' },
   chip: { borderRadius: Radius.r999, paddingHorizontal: Space.s200, paddingVertical: Space.s100 },
+  chipExp: { flexDirection: 'row', alignItems: 'center', gap: Space.s075, borderRadius: Radius.r999, paddingHorizontal: Space.s200, paddingVertical: Space.s100 },
+  chipExpIcon: { width: 18, height: 18 },
   chipActive: { backgroundColor: Colors.pink400 },
   chipInactive: { backgroundColor: Colors.pink050, borderWidth: 1, borderColor: Colors.opacityBlack100 },
   chipText: { fontSize: FontSize.size200, lineHeight: LineHeight.lh200, letterSpacing: -0.6 },

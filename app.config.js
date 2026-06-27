@@ -53,7 +53,8 @@ export default {
       reactCompiler: true,
     },
     extra: {
-      openaiApiKey: "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",
+      // 키는 .env(추적 제외)에서만 주입. 절대 하드코딩하지 말 것.
+      openaiApiKey: process.env.EXPO_PUBLIC_OPENAI_API_KEY,
     },
     fonts: [
       "./assets/fonts/JejuSamdasooBrand-Regular.otf",

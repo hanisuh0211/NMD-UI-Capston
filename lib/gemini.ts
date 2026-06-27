@@ -13,13 +13,17 @@ const askOpenAI = async (prompt: string): Promise<string> => {
         'Authorization': `Bearer ${OPENAI_API_KEY}`,
       },
       body: JSON.stringify({
-        model: 'gpt-5.4-mini',
+        model: 'gpt-4o-mini',
         messages: [{ role: 'user', content: prompt }],
       }),
     });
 
     const data = await response.json();
-    return data.choices?.[0]?.message?.content ?? '문구를 생성할 수 없었어요.';
+    if (!response.ok) {
+      console.log('OpenAI 응답 에러:', response.status, JSON.stringify(data));
+      return '문구를 생성할 수 없었어요.';
+    }
+    return data.choices?.[0]?.message?.content?.trim() || '문구를 생성할 수 없었어요.';
   } catch (error) {
     console.log('OpenAI 에러 상세:', JSON.stringify(error));
     return '문구를 생성할 수 없었어요.';

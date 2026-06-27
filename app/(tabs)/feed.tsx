@@ -9,13 +9,16 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { DocumentSnapshot } from 'firebase/firestore';
 import { Colors, FontSize, LineHeight, Space, Radius } from '../../theme';
-import NotificationsIcon from '../../assets/icons/notifications.svg';
 import { getPublicFeed } from '../../lib/feed';
 import { getUserProfile } from '../../lib/user';
-import { Anyway } from '../../lib/anyway';
+import { Anyway, setReaction, removeReaction } from '../../lib/anyway';
 import { getCardTemplate } from '../../lib/cardTemplates';
 import { seedSampleFeed, reassignCardStyles } from '../../lib/seed';
 import { Alert } from 'react-native';
+import { auth } from '../../firebaseConfig';
+import { EXPRESSIONS, getExpression, resolveCardExpressions, MOOD_BTN_DEFAULT } from '../../lib/expressions';
+
+const ANYWAY_STAR = require('../../assets/images/feed_anyway_star.png');
 
 const BORDER_COLORS = [Colors.blue300, Colors.pink300];
 const PAGE_SIZE = 10;
@@ -81,6 +84,38 @@ export default function FeedScreen() {
 
   // 카드 팝업 모달
   const [selected, setSelected] = useState<Anyway | null>(null);
+
+  // 표정(리액션) 선택 메뉴
+  const uid = auth.currentUser?.uid;
+  const [moodMenu, setMoodMenu] = useState<{ item: Anyway; x: number; y: number } | null>(null);
+
+  const openMoodMenu = (item: Anyway, x: number, y: number) => setMoodMenu({ item, x, y });
+
+  // 표정 선택 → 카운트 반영(낙관적) + Firestore 저장
+  // 이미 남긴 표정을 다시 선택하면 취소(삭제)
+  const pickReaction = (item: Anyway, key: string) => {
+    const prev = uid ? item.reactedBy?.[uid] : null;
+    setMoodMenu(null);
+    const removing = prev === key;
+    setItems((list) => list.map((it) => {
+      if (it.id !== item.id) return it;
+      const reactions = { ...(it.reactions || {}) };
+      const reactedBy = { ...(it.reactedBy || {}) };
+      if (removing) {
+        reactions[key] = Math.max(0, (reactions[key] || 0) - 1);
+        if (uid) delete reactedBy[uid];
+      } else {
+        reactions[key] = (reactions[key] || 0) + 1;
+        if (prev) reactions[prev] = Math.max(0, (reactions[prev] || 0) - 1);
+        if (uid) reactedBy[uid] = key;
+      }
+      return { ...it, reactions, reactedBy };
+    }));
+    if (uid && item.id) {
+      if (removing) removeReaction(item.id, uid, key);
+      else setReaction(item.id, uid, key, prev);
+    }
+  };
   const maxByWidth = screenWidth * 0.72;
   const maxByHeight = (screenHeight - 220) * (286 / 476);
   const popCardW = Math.min(maxByWidth, maxByHeight);
@@ -186,6 +221,9 @@ export default function FeedScreen() {
   const renderCard = (item: Anyway, key: string | number, w: number, h: number, borderColor: string, big = false) => {
     // 크게: 박스(테두리/배경/그림자) 없이 이름·날짜 → 카드 → ANYWAY → 문구 순으로 표시
     if (big) {
+      const exprKeys = resolveCardExpressions(item);
+      const myKey = uid ? item.reactedBy?.[uid] : null;
+      const moodSrc = myKey ? (getExpression(myKey)?.moodIcon ?? MOOD_BTN_DEFAULT) : MOOD_BTN_DEFAULT;
       return (
         <TouchableOpacity
           key={key}
@@ -200,9 +238,36 @@ export default function FeedScreen() {
           <View style={{ width: w, height: h, borderRadius: Radius.r300, overflow: 'hidden', alignSelf: 'center' }}>
             {renderCardBg(item, w, h)}
           </View>
-          <View style={s.bigTextRow}>
+          <View style={s.anywayBlock}>
+            {/* 제목과 함께 스크롤되는 뾰족 별 배경 */}
+            <Image source={ANYWAY_STAR} style={s.anywayStar} />
             <Text style={s.bigAnywayLabel}>ANYWAY,</Text>
-            <Text style={s.bigAnywayText} numberOfLines={2}>{item.anywayText}</Text>
+            <View style={s.titleRow}>
+              <Text style={s.bigAnywayText} numberOfLines={2}>{item.anywayText}</Text>
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={(e) => {
+                  // 이미 표정을 남겼으면 즉시 삭제, 아니면 선택 팝업
+                  if (myKey) pickReaction(item, myKey);
+                  else openMoodMenu(item, e.nativeEvent.pageX, e.nativeEvent.pageY);
+                }}
+              >
+                <Image source={moodSrc} style={s.moodBtn} />
+              </TouchableOpacity>
+            </View>
+            {/* 표정 카운트 모음 */}
+            <View style={s.reactionRow}>
+              {exprKeys.map((k) => {
+                const exp = getExpression(k);
+                if (!exp) return null;
+                return (
+                  <View key={k} style={s.reactionItem}>
+                    <Image source={exp.icon} style={s.reactionIcon} />
+                    <Text style={s.reactionCount}>{item.reactions?.[k] ?? 0}</Text>
+                  </View>
+                );
+              })}
+            </View>
           </View>
         </TouchableOpacity>
       );
@@ -250,7 +315,6 @@ export default function FeedScreen() {
                 <Text style={s.seedBtnText}>디자인 재배정</Text>
               </TouchableOpacity>
             </View>
-            <NotificationsIcon width={24} height={24} color={Colors.gray900} />
           </View>
 
           {/* 작게 / 크게 토글 */}
@@ -298,6 +362,41 @@ export default function FeedScreen() {
             </View>
           )}
         </ScrollView>
+
+        {/* 표정 선택 팝업 (mood 버튼 위로 떠오름) */}
+        <Modal
+          visible={moodMenu !== null}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setMoodMenu(null)}
+        >
+          <TouchableWithoutFeedback onPress={() => setMoodMenu(null)}>
+            <View style={{ flex: 1 }}>
+              {moodMenu && (() => {
+                const keys = resolveCardExpressions(moodMenu.item);
+                const rowH = 20, gap = 12, padV = 16, padH = 16, menuW = 140;
+                const menuH = padV * 2 + keys.length * rowH + (keys.length - 1) * gap;
+                let left = moodMenu.x - menuW + 20;
+                left = Math.max(8, Math.min(left, screenWidth - menuW - 8));
+                const top = Math.max(60, moodMenu.y - menuH - 8);
+                return (
+                  <View style={[s.moodMenu, { left, top, width: menuW, paddingVertical: padV, paddingHorizontal: padH, gap }]}>
+                    {keys.map((k) => {
+                      const exp = getExpression(k);
+                      if (!exp) return null;
+                      return (
+                        <TouchableOpacity key={k} style={s.moodMenuRow} activeOpacity={0.7} onPress={() => pickReaction(moodMenu.item, k)}>
+                          <Image source={exp.icon} style={s.moodMenuIcon} />
+                          <Text style={s.moodMenuLabel}>{exp.label}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                );
+              })()}
+            </View>
+          </TouchableWithoutFeedback>
+        </Modal>
 
         {/* 카드 팝업 모달 */}
         <Modal
@@ -349,11 +448,11 @@ const s = StyleSheet.create({
     borderRadius: Radius.r999, paddingHorizontal: Space.s200, paddingVertical: Space.s100,
     alignItems: 'center', justifyContent: 'center',
   },
-  toggleBtnActive: { backgroundColor: Colors.pink400 },
-  toggleBtnInactive: { backgroundColor: Colors.pink050, borderWidth: 1, borderColor: Colors.opacityBlack100 },
+  toggleBtnActive: { backgroundColor: Colors.blue400, borderWidth: 1, borderColor: Colors.blue400 },
+  toggleBtnInactive: { backgroundColor: Colors.white, borderWidth: 1, borderColor: Colors.blue400 },
   toggleText: { fontSize: FontSize.size200, lineHeight: LineHeight.lh200, letterSpacing: -0.6 },
   toggleTextActive: { color: Colors.white },
-  toggleTextInactive: { color: Colors.gray500 },
+  toggleTextInactive: { color: Colors.gray900 },
   // 카드 공통
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: Space.s150 },
   bigList: { gap: Space.s300 },
@@ -361,6 +460,23 @@ const s = StyleSheet.create({
   bigItem: { gap: Space.s150, paddingBottom: Space.s300, borderBottomWidth: 1, borderBottomColor: Colors.gray100 },
   bigMetaRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: Space.s050 },
   bigTextRow: { gap: Space.s075, paddingHorizontal: Space.s050 },
+  // 새 ANYWAY 블록 (별 배경 + 제목 + mood + 리액션)
+  anywayBlock: { paddingHorizontal: Space.s050, gap: Space.s100, position: 'relative' },
+  anywayStar: { position: 'absolute', left: -28, top: -46, width: 100, height: 100 },
+  titleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: Space.s100 },
+  moodBtn: { width: 40, height: 40 },
+  reactionRow: { flexDirection: 'row', alignItems: 'center', gap: Space.s150, marginTop: Space.s050 },
+  reactionItem: { flexDirection: 'row', alignItems: 'center', gap: Space.s050 },
+  reactionIcon: { width: 19, height: 19 },
+  reactionCount: { fontSize: FontSize.size200, color: Colors.gray700, lineHeight: LineHeight.lh200, letterSpacing: -0.2 },
+  // 표정 선택 팝업
+  moodMenu: {
+    position: 'absolute', backgroundColor: Colors.white, borderRadius: Radius.r200,
+    shadowColor: Colors.black, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.12, shadowRadius: 16, elevation: 6,
+  },
+  moodMenuRow: { flexDirection: 'row', alignItems: 'center', gap: Space.s150, height: 20 },
+  moodMenuIcon: { width: 19, height: 19 },
+  moodMenuLabel: { fontSize: FontSize.size200, color: Colors.gray700, lineHeight: LineHeight.lh200, letterSpacing: -0.2 },
   bigName: { fontSize: FontSize.size400, fontWeight: '600', color: Colors.gray900, lineHeight: LineHeight.lh400, letterSpacing: -0.4 },
   bigTime: { fontSize: FontSize.size300, color: Colors.gray500, lineHeight: LineHeight.lh300, letterSpacing: -0.4 },
   bigAnywayLabel: { fontSize: FontSize.size200, fontWeight: '300', color: Colors.gray700, lineHeight: LineHeight.lh200, letterSpacing: -0.2 },
