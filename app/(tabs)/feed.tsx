@@ -3,7 +3,7 @@ import {
   View, Text, StyleSheet, TouchableOpacity,
   ScrollView, StatusBar, Image, useWindowDimensions,
   NativeSyntheticEvent, NativeScrollEvent, ActivityIndicator,
-  Modal, TouchableWithoutFeedback,
+  Modal, TouchableWithoutFeedback, RefreshControl,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -17,6 +17,9 @@ import { seedSampleFeed, reassignCardStyles } from '../../lib/seed';
 import { Alert } from 'react-native';
 import { auth } from '../../firebaseConfig';
 import { EXPRESSIONS, getExpression, resolveCardExpressions, MOOD_BTN_DEFAULT } from '../../lib/expressions';
+import { REPORT_REASONS, reportAnyway, blockUser, getBlockedUsers } from '../../lib/moderation';
+import { confirm, notify } from '../../lib/dialog';
+import { isDevUser } from '../../lib/dev';
 
 const ANYWAY_STAR = require('../../assets/images/feed_anyway_star.png');
 
@@ -50,6 +53,7 @@ export default function FeedScreen() {
   const [size, setSize] = useState<'small' | 'big'>('big');
   const [items, setItems] = useState<Anyway[]>([]);
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [nicknames, setNicknames] = useState<Record<string, string>>({});
   const lastDocRef = useRef<DocumentSnapshot | undefined>(undefined);
@@ -87,7 +91,35 @@ export default function FeedScreen() {
 
   // 표정(리액션) 선택 메뉴
   const uid = auth.currentUser?.uid;
+  const dev = isDevUser();
   const [moodMenu, setMoodMenu] = useState<{ item: Anyway; x: number; y: number } | null>(null);
+
+  // 신고/차단
+  const [blocked, setBlocked] = useState<string[]>([]);
+  const [actionFor, setActionFor] = useState<Anyway | null>(null);   // ⋯ 메뉴 대상
+  const [reportFor, setReportFor] = useState<Anyway | null>(null);   // 신고 사유 선택 대상
+
+  useEffect(() => {
+    if (!uid) return;
+    getBlockedUsers(uid).then(({ blocked }) => setBlocked(blocked));
+  }, [uid]);
+
+  const handleReport = (reason: string) => {
+    const item = reportFor;
+    setReportFor(null);
+    if (uid && item?.id) reportAnyway(uid, item.id, item.userId, reason);
+    notify('신고 완료', '신고가 접수되었어요.\n검토 후 부적절한 콘텐츠는 24시간 내 조치됩니다.');
+  };
+
+  const handleBlock = () => {
+    const item = actionFor;
+    setActionFor(null);
+    if (!item) return;
+    confirm('사용자 차단', '이 사용자의 글을 더 이상 보지 않게 됩니다.\n차단할까요?', async () => {
+      if (uid) await blockUser(uid, item.userId);
+      setBlocked((prev) => [...new Set([...prev, item.userId])]);
+    }, '차단');
+  };
 
   const openMoodMenu = (item: Anyway, x: number, y: number) => setMoodMenu({ item, x, y });
 
@@ -136,6 +168,18 @@ export default function FeedScreen() {
     setLoading(false);
     loadingRef.current = false;
   }, [hasMore]);
+
+  // 당겨서 새로고침: 목록 초기화 후 첫 페이지부터 다시 로드
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    lastDocRef.current = undefined;
+    loadingRef.current = false;
+    const { feed, lastVisible } = await getPublicFeed(undefined, PAGE_SIZE);
+    setItems(feed);
+    lastDocRef.current = lastVisible ?? undefined;
+    setHasMore(feed.length >= PAGE_SIZE);
+    setRefreshing(false);
+  }, []);
 
   // 최초 1회 로드
   useEffect(() => {
@@ -233,7 +277,14 @@ export default function FeedScreen() {
         >
           <View style={s.bigMetaRow}>
             <Text style={s.bigName}>{nicknames[item.userId] ?? 'name'}</Text>
-            <Text style={s.bigTime}>{formatTime(item)}</Text>
+            <View style={s.bigMetaRight}>
+              <Text style={s.bigTime}>{formatTime(item)}</Text>
+              {uid && item.userId !== uid && (
+                <TouchableOpacity onPress={() => setActionFor(item)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                  <Text style={s.moreBtn}>⋯</Text>
+                </TouchableOpacity>
+              )}
+            </View>
           </View>
           <View style={{ width: w, height: h, borderRadius: Radius.r300, overflow: 'hidden', alignSelf: 'center' }}>
             {renderCardBg(item, w, h)}
@@ -293,6 +344,9 @@ export default function FeedScreen() {
     );
   };
 
+  // 차단한 사용자의 글은 피드에서 숨김
+  const visibleItems = items.filter((it) => !blocked.includes(it.userId));
+
   return (
     <View style={s.root}>
       <StatusBar barStyle="dark-content" />
@@ -303,19 +357,23 @@ export default function FeedScreen() {
           showsVerticalScrollIndicator={false}
           onScroll={handleScroll}
           scrollEventThrottle={16}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.blue500} colors={[Colors.blue500]} />
+          }
         >
-          {/* 헤더 */}
-          <View style={s.header}>
-            {/* 임시: 개발용 버튼 (확인 후 제거 예정) */}
-            <View style={{ flexDirection: 'row', gap: Space.s100 }}>
-              <TouchableOpacity style={s.seedBtn} onPress={handleSeed}>
-                <Text style={s.seedBtnText}>샘플 생성</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={s.seedBtn} onPress={handleReassign}>
-                <Text style={s.seedBtnText}>디자인 재배정</Text>
-              </TouchableOpacity>
+          {/* 헤더 — 개발용 버튼은 개발자 계정에서만 표시 */}
+          {dev && (
+            <View style={s.header}>
+              <View style={{ flexDirection: 'row', gap: Space.s100 }}>
+                <TouchableOpacity style={s.seedBtn} onPress={handleSeed}>
+                  <Text style={s.seedBtnText}>샘플 생성</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={s.seedBtn} onPress={handleReassign}>
+                  <Text style={s.seedBtnText}>디자인 재배정</Text>
+                </TouchableOpacity>
+              </View>
             </View>
-          </View>
+          )}
 
           {/* 작게 / 크게 토글 */}
           <View style={s.toggleRow}>
@@ -333,17 +391,17 @@ export default function FeedScreen() {
             </TouchableOpacity>
           </View>
 
-          {/* 작게: 2열 그리드 */}
+          {/* 작게: 2열 그리드 (차단 사용자 제외) */}
           {size === 'small' && (
             <View style={s.grid}>
-              {items.map((item, i) => renderCard(item, item.id ?? i, smallCardW, 178, smallBorderColor(i)))}
+              {visibleItems.map((item, i) => renderCard(item, item.id ?? i, smallCardW, 178, smallBorderColor(i)))}
             </View>
           )}
 
-          {/* 크게: 1열 그리드 */}
+          {/* 크게: 1열 그리드 (차단 사용자 제외) */}
           {size === 'big' && (
             <View style={s.bigList}>
-              {items.map((item, i) => {
+              {visibleItems.map((item, i) => {
                 const bigImgW = Math.round(contentW * 0.62);
                 return renderCard(item, item.id ?? i, bigImgW, Math.round(bigImgW * (476 / 286)), bigBorderColor(i), true);
               })}
@@ -356,7 +414,7 @@ export default function FeedScreen() {
               <ActivityIndicator size="small" color={Colors.blue500} />
             </View>
           )}
-          {!loading && items.length === 0 && (
+          {!loading && visibleItems.length === 0 && (
             <View style={s.emptyWrap}>
               <Text style={s.emptyText}>아직 공개된 ANYWAY가 없어요.</Text>
             </View>
@@ -428,6 +486,50 @@ export default function FeedScreen() {
             </View>
           </TouchableWithoutFeedback>
         </Modal>
+
+        {/* 신고/차단 액션 시트 */}
+        <Modal visible={actionFor !== null} transparent animationType="fade" onRequestClose={() => setActionFor(null)}>
+          <TouchableWithoutFeedback onPress={() => setActionFor(null)}>
+            <View style={s.sheetOverlay}>
+              <View style={s.sheet}>
+                <TouchableOpacity style={s.sheetRow} onPress={() => { setReportFor(actionFor); setActionFor(null); }}>
+                  <Text style={s.sheetText}>신고하기</Text>
+                </TouchableOpacity>
+                <View style={s.sheetDivider} />
+                <TouchableOpacity style={s.sheetRow} onPress={handleBlock}>
+                  <Text style={[s.sheetText, { color: Colors.red500 }]}>이 사용자 차단하기</Text>
+                </TouchableOpacity>
+                <View style={s.sheetDivider} />
+                <TouchableOpacity style={s.sheetRow} onPress={() => setActionFor(null)}>
+                  <Text style={s.sheetCancel}>취소</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </TouchableWithoutFeedback>
+        </Modal>
+
+        {/* 신고 사유 선택 */}
+        <Modal visible={reportFor !== null} transparent animationType="fade" onRequestClose={() => setReportFor(null)}>
+          <TouchableWithoutFeedback onPress={() => setReportFor(null)}>
+            <View style={s.sheetOverlay}>
+              <View style={s.sheet}>
+                <Text style={s.sheetTitle}>신고 사유를 선택해주세요</Text>
+                {REPORT_REASONS.map((reason, i) => (
+                  <View key={reason}>
+                    {i > 0 && <View style={s.sheetDivider} />}
+                    <TouchableOpacity style={s.sheetRow} onPress={() => handleReport(reason)}>
+                      <Text style={s.sheetText}>{reason}</Text>
+                    </TouchableOpacity>
+                  </View>
+                ))}
+                <View style={s.sheetDivider} />
+                <TouchableOpacity style={s.sheetRow} onPress={() => setReportFor(null)}>
+                  <Text style={s.sheetCancel}>취소</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </TouchableWithoutFeedback>
+        </Modal>
       </SafeAreaView>
     </View>
   );
@@ -459,6 +561,8 @@ const s = StyleSheet.create({
   // 크게: 박스 없는 스택 레이아웃 + 항목 사이 연회색 구분선
   bigItem: { gap: Space.s150, paddingBottom: Space.s300, borderBottomWidth: 1, borderBottomColor: Colors.gray100 },
   bigMetaRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: Space.s050 },
+  bigMetaRight: { flexDirection: 'row', alignItems: 'center', gap: Space.s100 },
+  moreBtn: { fontSize: 20, color: Colors.gray500, fontWeight: '700', lineHeight: 20 },
   bigTextRow: { gap: Space.s075, paddingHorizontal: Space.s050 },
   // 새 ANYWAY 블록 (별 배경 + 제목 + mood + 리액션)
   anywayBlock: { paddingHorizontal: Space.s050, gap: Space.s100, position: 'relative' },
@@ -477,6 +581,14 @@ const s = StyleSheet.create({
   moodMenuRow: { flexDirection: 'row', alignItems: 'center', gap: Space.s150, height: 20 },
   moodMenuIcon: { width: 19, height: 19 },
   moodMenuLabel: { fontSize: FontSize.size200, color: Colors.gray700, lineHeight: LineHeight.lh200, letterSpacing: -0.2 },
+  // 신고/차단 액션 시트 (하단)
+  sheetOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
+  sheet: { backgroundColor: Colors.white, borderTopLeftRadius: Radius.r300, borderTopRightRadius: Radius.r300, paddingVertical: Space.s100, paddingBottom: Space.s500 },
+  sheetTitle: { fontSize: FontSize.size200, color: Colors.gray500, textAlign: 'center', paddingVertical: Space.s200, letterSpacing: -0.4 },
+  sheetRow: { paddingVertical: Space.s200, alignItems: 'center' },
+  sheetText: { fontSize: FontSize.size400, color: Colors.gray900, letterSpacing: -0.4 },
+  sheetCancel: { fontSize: FontSize.size400, color: Colors.gray500, letterSpacing: -0.4 },
+  sheetDivider: { height: 0.5, backgroundColor: Colors.gray100 },
   bigName: { fontSize: FontSize.size400, fontWeight: '600', color: Colors.gray900, lineHeight: LineHeight.lh400, letterSpacing: -0.4 },
   bigTime: { fontSize: FontSize.size300, color: Colors.gray500, lineHeight: LineHeight.lh300, letterSpacing: -0.4 },
   bigAnywayLabel: { fontSize: FontSize.size200, fontWeight: '300', color: Colors.gray700, lineHeight: LineHeight.lh200, letterSpacing: -0.2 },

@@ -31,6 +31,7 @@ import { captureRef } from 'react-native-view-shot';
 import * as MediaLibrary from 'expo-media-library';
 import * as Sharing from 'expo-sharing';
 import { onAuthChanged } from '../../lib/auth';
+import { isDevUser } from '../../lib/dev';
 import CharacterAvatar from '../../components/CharacterAvatar';
 import DecoBottomStar from '../../assets/images/deco_stats_bottom.svg';
 
@@ -660,13 +661,14 @@ export default function StatsScreen() {
         <ScrollView contentContainerStyle={s.container}>
           {/* 하단 별 데코 (맨 뒤 레이어) */}
           <DecoBottomStar width={200} height={160} style={s.decoBottom} pointerEvents="none" />
-          {/* 헤더 */}
-          <View style={s.header}>
-            {/* 임시: 개발용 (지난달 샘플 카드 생성) */}
-            <TouchableOpacity style={s.seedBtn} onPress={handleSeedLastMonth}>
-              <Text style={s.seedBtnText}>지난달 샘플</Text>
-            </TouchableOpacity>
-          </View>
+          {/* 헤더 — 개발용 버튼은 개발자 계정에서만 표시 */}
+          {isDevUser() && (
+            <View style={s.header}>
+              <TouchableOpacity style={s.seedBtn} onPress={handleSeedLastMonth}>
+                <Text style={s.seedBtnText}>지난달 샘플</Text>
+              </TouchableOpacity>
+            </View>
+          )}
 
           {/* 월 네비게이션 */}
           <View style={s.monthRow}>

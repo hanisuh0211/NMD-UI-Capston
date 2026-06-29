@@ -16,6 +16,10 @@ import { logOut } from '../../lib/auth';
 import { confirm, notify } from '../../lib/dialog';
 import CharacterAvatar from '../../components/CharacterAvatar';
 import DecoStarSvg from '../../assets/images/deco_star.svg';
+import Constants from 'expo-constants';
+
+// 앱 버전: app.config.js의 version → 앱스토어 제출 버전과 동일
+const APP_VERSION = Constants.expoConfig?.version ?? '1.0.0';
 
 // 캐릭터 변경 카드 (회원가입 step3과 동일한 이미지/매핑)
 const EDIT_CHARACTERS = [
@@ -227,21 +231,30 @@ export default function MyScreen() {
               <Text style={s.settingsTitle}>설정</Text>
             </View>
             <View style={s.listContainer}>
-              {SETTINGS.map((label, i) => (
-                <View key={i}>
-                  <TouchableOpacity
-                    style={s.listItem}
-                    onPress={() => {
-                      if (label === '개인정보처리방침') router.push('/privacy');
-                      else if (label === '서비스 이용약관') router.push('/terms');
-                    }}
-                  >
-                    <Text style={s.listItemText}>{label}</Text>
-                    <ArrowForwardIosIcon width={24} height={24} color={Colors.gray500} />
-                  </TouchableOpacity>
-                  {i < SETTINGS.length - 1 && <View style={s.divider} />}
-                </View>
-              ))}
+              {SETTINGS.map((label, i) => {
+                const isVersion = label === '앱 버전 정보';
+                return (
+                  <View key={i}>
+                    <TouchableOpacity
+                      style={s.listItem}
+                      activeOpacity={isVersion ? 1 : 0.6}
+                      disabled={isVersion}
+                      onPress={() => {
+                        if (label === '개인정보처리방침') router.push('/privacy');
+                        else if (label === '서비스 이용약관') router.push('/terms');
+                      }}
+                    >
+                      <Text style={s.listItemText}>{label}</Text>
+                      {isVersion ? (
+                        <Text style={s.versionText}>v{APP_VERSION}</Text>
+                      ) : (
+                        <ArrowForwardIosIcon width={24} height={24} color={Colors.gray500} />
+                      )}
+                    </TouchableOpacity>
+                    {i < SETTINGS.length - 1 && <View style={s.divider} />}
+                  </View>
+                );
+              })}
             </View>
           </View>
 
@@ -302,6 +315,7 @@ const s = StyleSheet.create({
     fontSize: FontSize.size300, color: Colors.gray700,
     lineHeight: LineHeight.lh300, letterSpacing: -0.6,
   },
+  versionText: { fontSize: FontSize.size300, color: Colors.gray400, letterSpacing: -0.4 },
   divider: { height: 0.5, backgroundColor: Colors.gray100, marginHorizontal: Space.s100 },
   footerRow: {
     flexDirection: 'row', justifyContent: 'center', gap: Space.s300,
