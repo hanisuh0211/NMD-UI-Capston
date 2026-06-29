@@ -231,7 +231,10 @@ export default function MyScreen() {
                 <View key={i}>
                   <TouchableOpacity
                     style={s.listItem}
-                    onPress={() => { if (label === '개인정보처리방침') router.push('/privacy'); }}
+                    onPress={() => {
+                      if (label === '개인정보처리방침') router.push('/privacy');
+                      else if (label === '서비스 이용약관') router.push('/terms');
+                    }}
                   >
                     <Text style={s.listItemText}>{label}</Text>
                     <ArrowForwardIosIcon width={24} height={24} color={Colors.gray500} />

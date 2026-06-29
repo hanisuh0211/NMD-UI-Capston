@@ -38,6 +38,7 @@ export default function RootLayout() {
       <Stack.Screen name="my/nickname" />
       <Stack.Screen name="my/password" />
       <Stack.Screen name="privacy" />
+      <Stack.Screen name="terms" />
     </Stack>
   );
 }
