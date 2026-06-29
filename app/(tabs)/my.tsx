@@ -229,7 +229,10 @@ export default function MyScreen() {
             <View style={s.listContainer}>
               {SETTINGS.map((label, i) => (
                 <View key={i}>
-                  <TouchableOpacity style={s.listItem}>
+                  <TouchableOpacity
+                    style={s.listItem}
+                    onPress={() => { if (label === '개인정보처리방침') router.push('/privacy'); }}
+                  >
                     <Text style={s.listItemText}>{label}</Text>
                     <ArrowForwardIosIcon width={24} height={24} color={Colors.gray500} />
                   </TouchableOpacity>

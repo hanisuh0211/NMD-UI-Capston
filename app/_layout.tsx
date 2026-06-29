@@ -27,6 +27,8 @@ export default function RootLayout() {
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="index" />
       <Stack.Screen name="login" />
+      <Stack.Screen name="find-id" />
+      <Stack.Screen name="find-password" />
       <Stack.Screen name="loading" />
       <Stack.Screen name="onboarding" />
       <Stack.Screen name="signup/step1" />
@@ -35,6 +37,7 @@ export default function RootLayout() {
       <Stack.Screen name="(tabs)" />
       <Stack.Screen name="my/nickname" />
       <Stack.Screen name="my/password" />
+      <Stack.Screen name="privacy" />
     </Stack>
   );
 }

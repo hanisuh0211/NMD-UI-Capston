@@ -88,11 +88,11 @@ export default function LoginScreen() {
               <Text style={styles.linkText}>회원가입</Text>
             </TouchableOpacity>
             <View style={styles.dividerLine} />
-            <TouchableOpacity>
+            <TouchableOpacity onPress={() => router.push('/find-id')}>
               <Text style={styles.linkText}>아이디 찾기</Text>
             </TouchableOpacity>
             <View style={styles.dividerLine} />
-            <TouchableOpacity>
+            <TouchableOpacity onPress={() => router.push('/find-password')}>
               <Text style={styles.linkText}>비밀번호 찾기</Text>
             </TouchableOpacity>
           </View>
